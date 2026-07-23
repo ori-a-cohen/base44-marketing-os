@@ -22,3 +22,12 @@ description: Entry point for all marketing content. Reads the brand canon, route
 - No content to the human without a guardian verdict ≥ 9.
 - No invented facts, numbers, or customer stories — unverifiable claims get cut, not softened.
 - Every run leaves a trace (log + memory). A system that doesn't remember is a tool, not a teammate.
+
+## Roundtrip routes
+
+| The operator wants | Route to |
+|---|---|
+| content produced for a campaign | `skills/launch-campaign/SKILL.md` |
+| to know how something performed | `skills/measure/SKILL.md` |
+| to know which rules are working | `skills/rule-audit/SKILL.md` |
+| to read sources and propose a brief | `skills/weekly-pulse/SKILL.md` (unchanged, read-only) |
