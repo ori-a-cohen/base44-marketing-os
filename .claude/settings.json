@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./hooks/log-run.sh:*)",
+      "Read(brand/**)",
+      "Read(memory/**)",
+      "Read(data/**)"
+    ]
+  }
+}
