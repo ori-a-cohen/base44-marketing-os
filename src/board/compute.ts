@@ -137,27 +137,37 @@ export function computeBoard(cards: readonly Card[], now: Date): BoardView {
   const metricCards = cards.filter(isMetricEligibleSurface);
   const metric = loopClosure(metricCards, now);
 
-  // Per-surface grouping keys off each card's CURRENT surface: a card whose
-  // shipped history spans two surfaces across versions belongs to exactly
-  // one row, the one matching its current version -- never both.
-  const currentSurfaceById = new Map<string, string>();
-  for (const c of currentCards) currentSurfaceById.set(c.id, surfaceOf(c));
-
+  // Per-surface partitions the SAME row set the headline counts --
+  // `metricCards`, rows already filtered by each row's OWN countable surface
+  // (isMetricEligibleSurface applied row-by-row) -- by that same row-own
+  // surface. This is deliberately NOT the card's current surface:
+  //
+  //  - A stub-surface row can never land in any bucket, because it was
+  //    already excluded from `metricCards` before bucketing even starts.
+  //    That closes the inflation hole: a card whose only shipped history is
+  //    on a stub surface cannot manufacture an "eligible" row under whatever
+  //    live surface its current (unshipped) version happens to draft on.
+  //  - A card's shipped history on a live surface stays attached to that
+  //    surface regardless of what surface its CURRENT version lives on.
+  //    That closes the under-count hole: shipped, matured, unmeasured work
+  //    on a live surface still shows up even after the card's current
+  //    version moved to a stub surface.
+  //
+  // Each bucket is handed to loopClosure so it performs its own identity
+  // resolution and closure judgement per the surface-scoped subset of rows,
+  // exactly as the headline does for the full set.
   const eligibleCurrentCards = currentCards.filter(isMetricEligibleSurface);
-  const surfaces = [...new Set(eligibleCurrentCards.map(surfaceOf))];
+  const surfaces = [...new Set(metricCards.map(surfaceOf))];
 
   const perSurface: SurfaceRow[] = surfaces.map((surface) => {
-    // Closed/eligible: bucket ALL raw rows (every version) belonging to ids
-    // whose CURRENT surface is this one, then delegate to loopClosure so it
-    // still sees each id's full shipped history -- exactly the same
-    // full-history requirement that keeps the headline correct above. This
-    // is what stops one logical card from being counted closed on two
-    // surfaces at once.
-    const rawSubset = cards.filter((c) => currentSurfaceById.get(c.id) === surface);
+    const rawSubset = metricCards.filter((c) => surfaceOf(c) === surface);
     const sub = loopClosure(rawSubset, now);
 
-    // Score: the current version's outcome only -- a superseded row's value
-    // must never pollute the mean.
+    // Score: only the CURRENT version's outcome, and only when the current
+    // version itself is countable on this surface -- a superseded row's
+    // value must never pollute the mean, and a card whose current version
+    // has moved off this surface contributes no score to it (its current
+    // state simply isn't measured here anymore).
     const currentSubset = eligibleCurrentCards.filter((c) => surfaceOf(c) === surface);
     const scores = currentSubset.map(scoreOf).filter((s): s is number => s !== null);
     const mean = meanOf(scores);
