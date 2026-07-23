@@ -22,8 +22,13 @@ test-results/
 playwright-report/
 coverage/
 
-# Downloaded fonts (code falls back to system fonts)
-assets/fonts/
+# Downloaded fonts (code falls back to system fonts) and the never-committed
+# Dazzed licence exception -- keep the directory's contents out of the repo
+# except for the README explaining why. "assets/fonts/*" (not "assets/fonts/")
+# is required for the negation below to work: gitignore never re-includes a
+# path inside a directory that was itself excluded wholesale.
+assets/fonts/*
+!assets/fonts/README.md
 
 # Claude Code local state
 .claude/settings.local.json

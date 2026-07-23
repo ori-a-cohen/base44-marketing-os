@@ -51,7 +51,9 @@ One background, one ink, ONE accent, one muted. The accent earns attention by be
 Display face for headlines, body face for everything else — no exceptions, no "it looked better in italic." Verify fonts actually LOADED in rendered output: render the same text with and without the font and compare pixels; if they match, you silently fell back and the creative fails.
 
 **Known glyph exceptions** — real fonts have real defects. Record them here the first time one bites you, so it becomes a rule instead of a repeated surprise:
-- None recorded yet. Add the first one that bites you (Dazzed for display, Geist for body).
+- **Dazzed cannot ship with the repo.** It is free to use but not to redistribute, so a clone
+  renders display type in Geist until an operator drops the file into `assets/fonts/`. The renderer
+  reports which face it used and the board labels any fallback. Never let this one go silent.
 
 ## Layout
 
