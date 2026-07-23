@@ -11,7 +11,10 @@
     "PreToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
-        "hooks": [{ "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/brand-lint.sh" }]
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/brand-lint.sh" },
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/hooks/design-lint.sh" }
+        ]
       }
     ]
   }
