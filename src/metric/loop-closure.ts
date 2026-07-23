@@ -81,13 +81,13 @@ function rowShipShape(row: Card, now: Date): ShipShape {
 }
 
 /**
- * Fix 1: eligibility is a property of the card's full shipped history. If any
- * shipped row has matured, the card is eligible -- a re-ship that resets the
- * clock on the newest row cannot undo an earlier row's maturity, and a
- * corrupt newest row cannot mask a well-formed earlier one. Only when no
- * shipped row has matured do we fall back to whether any shipped row is at
- * least well-formed (in flight); the card is malformed only when every
- * shipped row is unreadable.
+ * Eligibility spans the full shipped history because a re-ship must not
+ * reset the maturity clock. If any shipped row has matured, the card is
+ * eligible -- a re-ship that resets the clock on the newest row cannot undo
+ * an earlier row's maturity, and a corrupt newest row cannot mask a
+ * well-formed earlier one. Only when no shipped row has matured do we fall
+ * back to whether any shipped row is at least well-formed (in flight); the
+ * card is malformed only when every shipped row is unreadable.
  */
 function shipHistoryShapeOf(shippedRows: readonly Card[], now: Date): ShipShape {
   const shapes = shippedRows.map((row) => rowShipShape(row, now));
@@ -97,9 +97,10 @@ function shipHistoryShapeOf(shippedRows: readonly Card[], now: Date): ShipShape 
 }
 
 /**
- * Rules 1, 2 and 4, plus Fix 2 (round 2) and Fix 2 (round 3). An eligible
- * card is closed only when its current live row (latestOverall) has itself
- * reached shipped/measured status -- a hand-edited row can carry a leftover
+ * Closure is judged only from the card's current live row, and only when
+ * that row's own outcome is trustworthy. An eligible card is closed only
+ * when its current live row (latestOverall) has itself reached
+ * shipped/measured status -- a hand-edited row can carry a leftover
  * shipped_at and outcome after being reverted to "drafted" (or a legacy
  * "review"/"draft"), and that must not close the loop -- and that row carries
  * an outcome that: belongs to it (card_id must match -- outcomes get copied
@@ -111,6 +112,7 @@ function shipHistoryShapeOf(shippedRows: readonly Card[], now: Date): ShipShape 
  */
 function isClosed(card: Card, now: Date): boolean {
   if (card.status !== "shipped" && card.status !== "measured") return false;
+  if (rowShipShape(card, now) !== "mature") return false;
   const outcome = card.outcome;
   if (outcome === null) return false;
   if (outcome.card_id !== card.id) return false;

@@ -263,6 +263,19 @@ describe("loop-closure rate — the four honesty rules", () => {
     });
   });
 
+  describe("the closing row must itself have matured", () => {
+    it("a card eligible via a matured v1, whose v2 was shipped one minute ago and measured immediately, is eligible but not closed", () => {
+      const v1 = shipped({ id: "immature-close-1", shippedHoursAgo: 24, version: 1 }); // matured, unmeasured -> eligible
+      const v2 = shipped({
+        id: "immature-close-1", shippedHoursAgo: 1 / 60,
+        outcome: { value: 5, provenance: "real", measuredHoursAgo: 0 }, version: 2,
+      });
+      const r = loopClosure([v1, v2], NOW);
+      expect(r.eligible).toBe(1);
+      expect(r.closed).toBe(0);
+    });
+  });
+
   describe("Fix 2: a measurement must postdate the ship, and belong to the card it's on", () => {
     it("an outcome measured before the card shipped does not count as closed", () => {
       const r = loopClosure([shipped({
