@@ -25,6 +25,31 @@ export type OutcomeAdapter = {
 } & AdapterAvailability;
 
 /**
+ * A source of environment-like values. Defaults to the real `process.env`,
+ * but callers may inject any object (or `null`/`undefined`) so the
+ * stub-vs-live decision stays unit-testable without mutating global state.
+ * Because it is caller-supplied, it is treated as untrusted: every read
+ * goes through `readEnvValue`, which never lets a missing source or a
+ * throwing getter escape as an exception.
+ */
+export type EnvSource = Readonly<Record<string, string | undefined>> | null | undefined;
+
+/**
+ * Reads a single key from a possibly-absent, possibly-hostile env source.
+ * `source` may be `null`/`undefined` (optional chaining handles that), or a
+ * plain object whose property access itself throws (a throwing getter,
+ * a Proxy trap, anything) -- the try/catch handles that case. Either way
+ * this returns `undefined` instead of propagating.
+ */
+function readEnvValue(source: EnvSource, name: string): string | undefined {
+  try {
+    return source?.[name];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Builds a credential-gated adapter such that the safe path is the only
  * path: an author cannot produce an adapter that throws at construction,
  * because this helper is the only way to construct one.
@@ -35,15 +60,25 @@ export type OutcomeAdapter = {
  *   throws (bad credentials shape, a misconfigured client, anything),
  *   the error is caught here and turned into a stub explaining the failure,
  *   never propagated -- construction can never throw at startup.
+ *
+ * `envSource` defaults to the real `process.env`, so every existing caller
+ * keeps reading real environment variables unchanged. Passing an explicit
+ * source (a plain object, `undefined`, `null`, or something with hostile
+ * getters) lets a caller drive the same env-check and try/catch path with
+ * injected values -- reading it can never throw, see `readEnvValue`.
  */
 export function credentialGatedAdapter(config: {
   readonly id: string;
   readonly surface: string;
   readonly requiredEnv: readonly string[];
   readonly build: (env: Readonly<Record<string, string>>) => Pick<OutcomeAdapter, "fetch">;
+  readonly envSource?: EnvSource;
 }): OutcomeAdapter {
-  const { id, surface, requiredEnv, build } = config;
-  const missing = requiredEnv.filter((name) => !process.env[name]);
+  const { id, surface, requiredEnv, build, envSource = process.env } = config;
+
+  const entries = requiredEnv.map((name) => [name, readEnvValue(envSource, name)] as const);
+  const missing = entries.filter(([, value]) => !value).map(([name]) => name);
+
   if (missing.length > 0) {
     const noun = missing.length === 1 ? "variable" : "variables";
     return {
@@ -55,7 +90,12 @@ export function credentialGatedAdapter(config: {
     };
   }
 
-  const env = Object.fromEntries(requiredEnv.map((name) => [name, process.env[name] as string]));
+  const env = entries.reduce<Record<string, string>>((acc, [name, value]) => {
+    if (!value) {
+      return acc;
+    }
+    return { ...acc, [name]: value };
+  }, {});
 
   try {
     const { fetch } = build(env);
