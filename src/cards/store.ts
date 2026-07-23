@@ -3,6 +3,14 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { type Card, parseCard } from "./schema.js";
 
+/**
+ * These free functions are the one implementation of the JSONL read/
+ * append/upsert mechanics. `card-store.ts`'s `JsonlCardStore` wraps them
+ * behind the driver-agnostic `CardStore` interface (path bound at
+ * construction instead of passed per call) rather than reimplementing
+ * them, so there is never a second copy of this logic to drift.
+ */
+
 function ensureDir(path: string): void {
   mkdirSync(dirname(path), { recursive: true });
 }
