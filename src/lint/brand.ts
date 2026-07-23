@@ -4,8 +4,19 @@ import { parseVocabulary } from "./vocabulary.js";
 export type { VocabSwap };
 export { parseVocabulary };
 
+/**
+ * "block" findings are mechanically decidable: a literal term either
+ * appears in the text or it does not, so the linter can stop the write.
+ * "warn" findings require reading intent — telling a factual clarification
+ * apart from an inflated rhetorical flourish is a judgment call, and that
+ * call belongs to the LLM brand-guardian agent, not a regex. The mechanical
+ * linter blocks what it can decide and defers the rest.
+ */
+export type LintSeverity = "block" | "warn";
+
 export interface LintFinding {
   readonly rule: number;
+  readonly severity: LintSeverity;
   readonly message: string;
   readonly excerpt: string;
 }
@@ -18,23 +29,52 @@ export interface LintFinding {
  * calls. lintBrand builds a fresh global copy of each pattern per call
  * (see the loop below) instead, following the same per-call-construction
  * approach rule 2 already uses.
+ *
+ * Per-pattern severity:
+ * - "stock opener" ("In today's fast-paced world..."): block. A fixed,
+ *   rigid idiom with no ordinary factual reading — nobody opens a genuine
+ *   factual sentence this way, so a match is unambiguous.
+ * - "contrast framing" ("It's not X, it's Y"): warn. The exact same
+ *   grammatical shape covers both a genuine rhetorical tell ("it's not
+ *   marketing, it's storytelling") and an ordinary factual clarification
+ *   ("it's not free, it's $20/month"). Telling them apart requires reading
+ *   intent, which is the guardian's job, not the regex's.
+ * - "negative parallelism" ("not only X but also Y"): warn. This is a
+ *   common, entirely ordinary English construction for describing two true
+ *   facts ("works not only on desktop but also on mobile") — it becomes an
+ *   AI tell only when used for rhetorical inflation rather than a plain
+ *   feature list, which the pattern alone cannot tell apart.
+ * - "landscape cliche" ("in the (ever-)evolving landscape"): block. A
+ *   fixed corporate-filler idiom with no factual-clarification reading —
+ *   unlike contrast framing, there is no ordinary sentence shape this
+ *   pattern also matches, so seeing it is decisive on its own.
+ * - "testament cliche" ("is a testament to"): block. Also a fixed idiom
+ *   string; it always functions as color/praise, never as a factual
+ *   clarification that would need to be told apart from the tell.
  */
-const AI_TELLS: readonly { pattern: RegExp; label: string }[] = [
-  { pattern: /in today['’]s (?:fast-paced|rapidly evolving|ever-changing)/i, label: "stock opener" },
-  // Requires an article ("a "/"an ") before the first clause and excludes
-  // sentence/line terminators (comma, period, newline, "!", "?", ";") from
-  // the window so it cannot cross a clause or line boundary. The mandatory
-  // article also keeps this from firing on a plain factual "it's not
-  // <adjective>, it's <fact>" sentence (e.g. a price statement), which has
-  // no article on either side, while still matching the genuine
-  // "it's not a/an X, it's a/an Y" marketing tell.
+const AI_TELLS: readonly { pattern: RegExp; label: string; severity: LintSeverity }[] = [
   {
-    pattern: /it['’]s not (?:just )?(?:a |an )[^,.\n!?;]{1,30}, it['’]s/i,
-    label: "contrast framing",
+    pattern: /in today['’]s (?:fast-paced|rapidly evolving|ever-changing)/i,
+    label: "stock opener",
+    severity: "block",
   },
-  { pattern: /\bnot only\b[^.]{0,60}\bbut also\b/i, label: "negative parallelism" },
-  { pattern: /\bin the (?:ever-)?evolving landscape\b/i, label: "landscape cliche" },
-  { pattern: /\bis a testament to\b/i, label: "testament cliche" },
+  // Excludes sentence/line terminators (comma, period, newline, "!", "?",
+  // ";") from the window so a match can never cross a clause or line
+  // boundary — a warning that spans two unrelated sentences would just be
+  // noise. No article requirement: that narrowing is what made this pattern
+  // miss the genuine tell ("it's not marketing, it's storytelling" has no
+  // article on either side). Recall is restored here because this pattern
+  // is "warn" severity now — a false positive on a factual clarification no
+  // longer blocks anyone's work, it just surfaces a judgment call for the
+  // guardian.
+  {
+    pattern: /it['’]s not (?:just )?[^,.\n!?;]{1,30}, it['’]s/i,
+    label: "contrast framing",
+    severity: "warn",
+  },
+  { pattern: /\bnot only\b[^.]{0,60}\bbut also\b/i, label: "negative parallelism", severity: "warn" },
+  { pattern: /\bin the (?:ever-)?evolving landscape\b/i, label: "landscape cliche", severity: "block" },
+  { pattern: /\bis a testament to\b/i, label: "testament cliche", severity: "block" },
 ];
 
 /** Rule 8 — CTAs that are not actions the reader can take now. */
@@ -72,6 +112,7 @@ export function lintBrand(text: string, vocab: readonly VocabSwap[]): readonly L
     while ((m = re.exec(text)) !== null) {
       findings.push({
         rule: 2,
+        severity: "block",
         message: `Rule 2 vocabulary: "${m[0]}" is on the never-say list. Use "${swap.instead}".`,
         excerpt: excerpt(text, m.index, m[0].length),
       });
@@ -84,6 +125,7 @@ export function lintBrand(text: string, vocab: readonly VocabSwap[]): readonly L
     while ((m = re.exec(text)) !== null) {
       findings.push({
         rule: 7,
+        severity: tell.severity,
         message: `Rule 7 AI tell (${tell.label}): "${m[0].trim()}". Rewrite without it.`,
         excerpt: excerpt(text, m.index, m[0].length),
       });
@@ -96,6 +138,7 @@ export function lintBrand(text: string, vocab: readonly VocabSwap[]): readonly L
     while ((m = re.exec(text)) !== null) {
       findings.push({
         rule: 8,
+        severity: "block",
         message: `Rule 8 CTA: "${m[0]}" is not an action. Use a verb the reader can do now.`,
         excerpt: excerpt(text, m.index, m[0].length),
       });

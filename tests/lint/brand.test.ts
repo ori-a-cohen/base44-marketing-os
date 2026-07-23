@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { describe, it, expect } from "vitest";
 import { lintBrand, parseVocabulary } from "../../src/lint/brand.js";
 
@@ -16,6 +16,11 @@ describe("lintBrand", () => {
     const f = lintBrand("Leverage Base1 to build faster. Start now.", VOCAB);
     expect(f.some((x) => x.rule === 2)).toBe(true);
     expect(f.find((x) => x.rule === 2)?.message).toContain("use");
+  });
+
+  it("RULE 2: a vocabulary finding carries severity \"block\"", () => {
+    const f = lintBrand("Leverage Base1 to build faster. Start now.", VOCAB);
+    expect(f.find((x) => x.rule === 2)?.severity).toBe("block");
   });
 
   it("RULE 2: matches whole words only", () => {
@@ -51,9 +56,33 @@ describe("lintBrand", () => {
     expect(f.some((x) => x.rule === 7)).toBe(true);
   });
 
-  it("RULE 7: does not flag a plain factual 'it's not free, it's $20' sentence", () => {
+  // Changed from the original expectation (no rule-7 finding at all) to
+  // "no BLOCK finding": contrast framing is now "warn" severity, so a
+  // plain factual clarification is allowed to surface as a warning for the
+  // brand-guardian to judge intent on. It must never block the write on
+  // its own, which this test pins down instead.
+  it("RULE 7: does not produce a BLOCK finding for a plain factual 'it's not free, it's $20' sentence", () => {
     const f = lintBrand("It's not free, it's $20/month.", VOCAB);
-    expect(f.some((x) => x.rule === 7)).toBe(false);
+    expect(f.some((x) => x.rule === 7 && x.severity === "block")).toBe(false);
+  });
+
+  it("RULE 7: 'It's not marketing, it's storytelling' produces a warn-severity finding (the genuine rhetorical tell)", () => {
+    const f = lintBrand("It's not marketing, it's storytelling. Start building.", VOCAB);
+    const rule7 = f.filter((x) => x.rule === 7);
+    expect(rule7.some((x) => x.severity === "warn")).toBe(true);
+    expect(rule7.some((x) => x.severity === "block")).toBe(false);
+  });
+
+  it("RULE 7: ordinary factual contrast-framing sentences never produce a BLOCK finding (warn is fine)", () => {
+    const cases = [
+      "It's not free, it's $20/month.",
+      "It's not a discount, it's a fee.",
+      "It's not a subscription, it's a one-time purchase.",
+    ];
+    for (const text of cases) {
+      const f = lintBrand(text, VOCAB);
+      expect(f.some((x) => x.rule === 7 && x.severity === "block")).toBe(false);
+    }
   });
 
   it("RULE 7: reports every occurrence of a repeated AI tell, not just the first", () => {
@@ -182,21 +211,21 @@ describe("parse-then-lint round trip against the real canon", () => {
 
 describe("cli-brand subprocess", () => {
   // Resolved from this test file's own location (not process.cwd()) and
-  // passed to execFileSync as a discrete array element rather than a shell
+  // passed to spawnSync as a discrete array element rather than a shell
   // string, so a repo root path containing a space (as this one does)
   // never needs manual quoting or escaping.
   const here = dirname(fileURLToPath(import.meta.url));
   const repoRoot = resolve(here, "../..");
   const cliPath = resolve(repoRoot, "src/lint/cli-brand.ts");
 
+  // spawnSync (rather than execFileSync) is used because it always returns
+  // captured stdio, including stderr on a clean exit 0 run. execFileSync
+  // only surfaces stderr when the process throws (non-zero exit), which
+  // would silently drop the warn-only case's stderr output (exit 0, but
+  // still has warnings printed) that the tests below need to assert on.
   function runCli(input: string): { readonly status: number | null; readonly stderr: string } {
-    try {
-      execFileSync("npx", ["tsx", cliPath], { input, cwd: repoRoot, encoding: "utf8" });
-      return { status: 0, stderr: "" };
-    } catch (error) {
-      const e = error as { status: number | null; stderr: string };
-      return { status: e.status, stderr: e.stderr };
-    }
+    const result = spawnSync("npx", ["tsx", cliPath], { input, cwd: repoRoot, encoding: "utf8" });
+    return { status: result.status, stderr: result.stderr };
   }
 
   it("exits 2 and reports rule-2 findings for copy with canon-banned terms", () => {
@@ -208,5 +237,19 @@ describe("cli-brand subprocess", () => {
   it("exits 0 for clean copy", () => {
     const result = runCli("Batteries included. Start building now.\n");
     expect(result.status).toBe(0);
+  }, 30_000);
+
+  it("exits 0 (with a visible warning) for copy containing only a rule-7 contrast-framing warning", () => {
+    const result = runCli("It's not marketing, it's storytelling. Start building.\n");
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("WARNED");
+    expect(result.stderr).toContain("rule 7");
+  }, 30_000);
+
+  it("exits 2 for copy containing a banned vocabulary term, even alongside a warning", () => {
+    const result = runCli("Our users can deploy containers with low-code. Start now.\n");
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("BLOCKED");
+    expect(result.stderr).toContain("rule 2");
   }, 30_000);
 });
