@@ -149,6 +149,28 @@ export function dedupeToLatestVersion(cards: readonly Card[]): readonly Card[] {
   return groupLatestByCard(cards).map((rows) => rows.latestOverall);
 }
 
+/**
+ * The set of logical card ids that `loopClosure` judges closed for exactly
+ * this card set -- same grouping, same shape classification, same
+ * `isClosed` check, just returning identities instead of a count. Exists so
+ * a caller that needs to attribute a closed card to a single bucket (see
+ * `board/compute.ts`'s per-surface breakdown) can ask "which ids close" for
+ * a set that already spans every surface a card might live on, instead of
+ * re-deriving closure on a surface-filtered subset -- filtering first is
+ * exactly what let one logical card close independently on two different
+ * surfaces before this function existed. `closedCardIds(cards, now).size`
+ * always equals `loopClosure(cards, now).closed` for the same inputs.
+ */
+export function closedCardIds(cards: readonly Card[], now: Date): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const { latestOverall, shippedRows } of groupLatestByCard(cards)) {
+    if (shippedRows.length === 0) continue;
+    if (shipHistoryShapeOf(shippedRows, now) !== "mature") continue;
+    if (isClosed(latestOverall, now)) ids.add(latestOverall.id);
+  }
+  return ids;
+}
+
 export function loopClosure(cards: readonly Card[], now: Date): LoopClosure {
   let malformed = 0;
   let inFlight = 0;

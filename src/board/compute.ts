@@ -1,5 +1,11 @@
 import { type Card, COUNTING_PROVENANCES } from "../cards/schema.js";
-import { loopClosure, formatLoopClosure, dedupeToLatestVersion, type LoopClosure } from "../metric/loop-closure.js";
+import {
+  loopClosure,
+  formatLoopClosure,
+  dedupeToLatestVersion,
+  closedCardIds,
+  type LoopClosure,
+} from "../metric/loop-closure.js";
 import { getSurface, normalizeScore, SURFACES } from "../metric/surfaces.js";
 
 /** No pattern is reported as a finding below this many observations in a cell. */
@@ -137,7 +143,7 @@ export function computeBoard(cards: readonly Card[], now: Date): BoardView {
   const metricCards = cards.filter(isMetricEligibleSurface);
   const metric = loopClosure(metricCards, now);
 
-  // Per-surface partitions the SAME row set the headline counts --
+  // Per-surface `eligible` partitions the SAME row set the headline counts --
   // `metricCards`, rows already filtered by each row's OWN countable surface
   // (isMetricEligibleSurface applied row-by-row) -- by that same row-own
   // surface. This is deliberately NOT the card's current surface:
@@ -153,13 +159,41 @@ export function computeBoard(cards: readonly Card[], now: Date): BoardView {
   //    on a live surface still shows up even after the card's current
   //    version moved to a stub surface.
   //
-  // Each bucket is handed to loopClosure so it performs its own identity
-  // resolution and closure judgement per the surface-scoped subset of rows,
-  // exactly as the headline does for the full set.
+  // `closed` is deliberately NOT computed this way (see below): re-deriving
+  // closure on a surface-filtered subset lets `loopClosure` pick a different
+  // "latest version" per subset, so the SAME logical card can be judged
+  // closed independently on two different surfaces -- exactly the inflation
+  // this fix removes. `eligible` has no such hazard because it is a
+  // per-row fact ("did eligible work happen here"), not an identity
+  // resolution across versions, so honest eligibility-spread across two
+  // genuinely-shipped surfaces stays intact.
   const eligibleCurrentCards = currentCards.filter(isMetricEligibleSurface);
   const surfaces = [...new Set(metricCards.map(surfaceOf))];
 
+  // Closed attribution: a closed logical card belongs to exactly ONE
+  // surface -- the surface of its current (highest-version) row WITHIN
+  // `metricCards`, the same row set the headline itself resolves "current"
+  // and "closed" from. `closedCardIds` judges closure from each id's full
+  // row history in that set (never a surface-filtered subset), so a card
+  // shipped and independently closeable on two different live surfaces
+  // still closes exactly once, on the surface its current version actually
+  // lives on. `dedupeToLatestVersion(metricCards)` gives that same current
+  // row per id -- deliberately computed over `metricCards`, not the raw
+  // `cards`, so it agrees with the row set `closedIds` was judged against.
+  const closedIds = closedCardIds(metricCards, now);
+  const currentWithinMetric = dedupeToLatestVersion(metricCards);
+  const closedBySurface = new Map<string, number>();
+  for (const c of currentWithinMetric) {
+    if (!closedIds.has(c.id)) continue;
+    const s = surfaceOf(c);
+    closedBySurface.set(s, (closedBySurface.get(s) ?? 0) + 1);
+  }
+
   const perSurface: SurfaceRow[] = surfaces.map((surface) => {
+    // Eligible: still bucketed by each row's OWN surface (unchanged from
+    // the prior round) -- it answers "did eligible work happen on this
+    // surface," which can honestly be true on more than one surface for
+    // the same logical card.
     const rawSubset = metricCards.filter((c) => surfaceOf(c) === surface);
     const sub = loopClosure(rawSubset, now);
 
@@ -175,7 +209,7 @@ export function computeBoard(cards: readonly Card[], now: Date): BoardView {
     return {
       surface,
       label: getSurface(surface).label,
-      closed: sub.closed,
+      closed: closedBySurface.get(surface) ?? 0,
       eligible: sub.eligible,
       score: mean === null ? null : Math.round(mean),
     };

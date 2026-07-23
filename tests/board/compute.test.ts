@@ -283,6 +283,90 @@ describe("computeBoard", () => {
       expect(closedSum).toBe(view.metric.closed);
     });
 
+    it("task-15: a card independently closeable on two different LIVE surfaces closes exactly once, attributed to its current version's surface", () => {
+      // v1 shipped on aeo_check, matured, measured with a real, fresh
+      // outcome -- independently closeable if judged in isolation. v2
+      // shipped on landing_page, also matured, also measured with a real,
+      // fresh outcome -- also independently closeable in isolation. Before
+      // this fix, bucketing by row-own surface and re-running loopClosure
+      // per bucket let BOTH subsets pick their own row as "latest" and
+      // judge it closed, so this single logical card was counted closed
+      // twice (sum 2 > headline 1). The fix must attribute closure to
+      // exactly the surface of the id's true current (highest) version:
+      // landing_page.
+      const v1 = card({
+        id: "sb2", version: 1, surface: "aeo_check", channel: "aeo_check",
+        status: "measured", shipped_at: new Date(NOW.getTime() - 20 * 86_400_000).toISOString(),
+        outcome: {
+          card_id: "sb2", surface: "aeo_check", metric: "canon_match", value: 60,
+          unit: "count", measured_at: dayAgo, source: "test", provenance: "real",
+        },
+      });
+      const v2 = card({
+        id: "sb2", version: 2, surface: "landing_page", channel: "landing_page",
+        status: "measured", shipped_at: new Date(NOW.getTime() - 10 * 86_400_000).toISOString(),
+        outcome: {
+          card_id: "sb2", surface: "landing_page", metric: "visits", value: 30,
+          unit: "count", measured_at: dayAgo, source: "test", provenance: "real",
+        },
+      });
+
+      const view = computeBoard([v1, v2], NOW);
+
+      expect(view.metric.closed).toBe(1);
+      expect(view.metric.eligible).toBe(1);
+
+      const onAeoCheck = view.perSurface.find((s) => s.surface === "aeo_check");
+      const onLandingPage = view.perSurface.find((s) => s.surface === "landing_page");
+      expect(onAeoCheck?.closed).toBe(0);
+      expect(onLandingPage?.closed).toBe(1);
+
+      const closedSum = view.perSurface.reduce((sum, s) => sum + s.closed, 0);
+      expect(closedSum).toBe(view.metric.closed);
+    });
+
+    it("property: sum(perSurface.closed) equals the headline exactly on a mixed set including both-independently-closeable-across-live-surfaces, and closed never exceeds eligible on any single surface", () => {
+      const cards: Card[] = [
+        measured("prop-a", 10),
+        card({ id: "prop-b" }),
+        // Stub-boundary inflation shape.
+        card({ id: "prop-c", version: 1, surface: "meta_ads", channel: "meta_ads", status: "shipped", shipped_at: dayAgo }),
+        card({ id: "prop-c", version: 2, surface: "landing_page", channel: "landing_page", status: "drafted", shipped_at: null }),
+        // Stub-boundary under-count shape.
+        card({ id: "prop-d", version: 1, surface: "aeo_check", channel: "aeo_check", status: "shipped", shipped_at: dayAgo }),
+        card({ id: "prop-d", version: 2, surface: "meta_ads", channel: "meta_ads", status: "drafted", shipped_at: null }),
+        // Independent card fully on aeo_check, closed.
+        card({
+          id: "prop-e", surface: "aeo_check", channel: "aeo_check", status: "measured", shipped_at: dayAgo,
+          outcome: { card_id: "prop-e", surface: "aeo_check", metric: "canon_match", value: 60,
+            unit: "count", measured_at: dayAgo, source: "test", provenance: "real" },
+        }),
+        // Pure stub-surface card, contributes nowhere.
+        card({ id: "prop-f", surface: "linkedin_ads", channel: "linkedin_ads", status: "shipped", shipped_at: dayAgo }),
+        // The two-live-surface, both-independently-closeable shape.
+        card({
+          id: "prop-g", version: 1, surface: "aeo_check", channel: "aeo_check",
+          status: "measured", shipped_at: new Date(NOW.getTime() - 20 * 86_400_000).toISOString(),
+          outcome: { card_id: "prop-g", surface: "aeo_check", metric: "canon_match", value: 55,
+            unit: "count", measured_at: dayAgo, source: "test", provenance: "real" },
+        }),
+        card({
+          id: "prop-g", version: 2, surface: "landing_page", channel: "landing_page",
+          status: "measured", shipped_at: new Date(NOW.getTime() - 10 * 86_400_000).toISOString(),
+          outcome: { card_id: "prop-g", surface: "landing_page", metric: "visits", value: 25,
+            unit: "count", measured_at: dayAgo, source: "test", provenance: "real" },
+        }),
+      ];
+
+      const view = computeBoard(cards, NOW);
+      const closedSum = view.perSurface.reduce((sum, s) => sum + s.closed, 0);
+
+      expect(closedSum).toBe(view.metric.closed);
+      for (const s of view.perSurface) {
+        expect(s.closed).toBeLessThanOrEqual(s.eligible);
+      }
+    });
+
     it("property: sum(perSurface) never exceeds the headline across a mixed card set (excluding the documented cross-live-surface exception)", () => {
       const cards: Card[] = [
         // Plain single-surface cards, closed and open.
