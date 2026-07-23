@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, appendFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync, appendFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { type Card, parseCard } from "./schema.js";
 
 function ensureDir(path: string): void {
@@ -26,7 +27,12 @@ export function upsertCard(path: string, card: Card): void {
   const idx = cards.findIndex((c) => c.id === card.id && c.version === card.version);
   const next = idx === -1 ? [...cards, card] : cards.map((c, i) => (i === idx ? card : c));
   ensureDir(path);
-  writeFileSync(path, next.map((c) => JSON.stringify(c)).join("\n") + "\n", "utf8");
+  // Write to a temp file in the same directory, then rename over the target.
+  // A rename is atomic on the same filesystem, so a crash mid-write can never
+  // leave the append-only log truncated or partially written.
+  const tempPath = join(dirname(path), `.${randomUUID()}.tmp`);
+  writeFileSync(tempPath, next.map((c) => JSON.stringify(c)).join("\n") + "\n", "utf8");
+  renameSync(tempPath, path);
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readCards, appendCard, upsertCard, nextVersion } from "../../src/cards/store.js";
@@ -52,5 +52,11 @@ describe("card store", () => {
     appendCard(file, base("cc-1"));
     appendCard(file, nextVersion(base("cc-1")));
     expect(readCards(file)).toHaveLength(2);
+  });
+
+  it("leaves no temp file behind after a successful upsert", () => {
+    appendCard(file, base("cc-1"));
+    upsertCard(file, { ...base("cc-1"), status: "approved" });
+    expect(readdirSync(dir)).toEqual(["cards.jsonl"]);
   });
 });
