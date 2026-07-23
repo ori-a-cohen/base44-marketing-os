@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { parseTokens } from "../lint/tokens.js";
 import { renderPage, type PageSpec } from "./page.js";
 import { renderCardPng } from "./card-image.js";
@@ -35,7 +35,12 @@ export async function buildCard(opts: BuildOptions): Promise<void> {
     throw new Error(`No card found with id ${opts.spec.cardId} in ${opts.cardsPath}`);
   }
 
-  const tokens = parseTokens(readFileSync("brand/DESIGN.md", "utf8"));
+  // Resolve the canon relative to this module, not the caller's cwd -- the
+  // repo root contains a space, so pass the fs path via fileURLToPath rather
+  // than a URL.pathname (which percent-encodes the space). Matches cli-brand /
+  // cli-design.
+  const designPath = fileURLToPath(new URL("../../brand/DESIGN.md", import.meta.url));
+  const tokens = parseTokens(readFileSync(designPath, "utf8"));
   const dir = join(opts.outDir, opts.spec.cardId);
   mkdirSync(dir, { recursive: true });
 
