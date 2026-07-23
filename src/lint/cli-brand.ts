@@ -1,14 +1,52 @@
 import { readFileSync, existsSync } from "node:fs";
+import type { VocabSwap } from "./brand.js";
 import { lintBrand, parseVocabulary } from "./brand.js";
 
 /**
  * Reads the candidate text on stdin, prints findings on stderr,
  * exits 2 when anything fails so a PreToolUse hook blocks the write.
+ *
+ * Exit codes: 0 clean, 2 blocked (findings present), 3 stdin unreadable.
+ * A hook must be able to tell "blocked" apart from "the linter itself
+ * broke", so an I/O failure never collapses onto 0 or 2.
  */
-const text = readFileSync(0, "utf8");
-const guidePath = new URL("../../brand/voice-guide.md", import.meta.url).pathname;
-const vocab = existsSync(guidePath) ? parseVocabulary(readFileSync(guidePath, "utf8")) : [];
+const STDIN_READ_FAILURE_EXIT_CODE = 3;
 
+// A URL object (not its .pathname string) is passed straight to fs's
+// PathLike-accepting functions below: Node decodes the URL itself, so a
+// repo path containing a space (percent-encoded to %20 in the URL) resolves
+// correctly. Stringifying via .pathname first would hand fs the still-encoded
+// text and silently fail existsSync/readFileSync, which is exactly the bug
+// this fixes. It also sidesteps a latent Windows leading-slash bug in
+// .pathname.
+const guideUrl = new URL("../../brand/voice-guide.md", import.meta.url);
+
+function loadVocabulary(): readonly VocabSwap[] {
+  try {
+    if (!existsSync(guideUrl)) {
+      process.stderr.write(
+        `brand-lint: canon not found at ${guideUrl}, linting against an empty vocabulary.\n`,
+      );
+      return [];
+    }
+    return parseVocabulary(readFileSync(guideUrl, "utf8"));
+  } catch (error) {
+    process.stderr.write(
+      `brand-lint: failed to read canon (${(error as Error).message}), linting against an empty vocabulary.\n`,
+    );
+    return [];
+  }
+}
+
+let text: string;
+try {
+  text = readFileSync(0, "utf8");
+} catch (error) {
+  process.stderr.write(`brand-lint: failed to read stdin (${(error as Error).message}).\n`);
+  process.exit(STDIN_READ_FAILURE_EXIT_CODE);
+}
+
+const vocab = loadVocabulary();
 const findings = lintBrand(text, vocab);
 if (findings.length === 0) process.exit(0);
 

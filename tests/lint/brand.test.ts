@@ -1,4 +1,7 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 import { describe, it, expect } from "vitest";
 import { lintBrand, parseVocabulary } from "../../src/lint/brand.js";
 
@@ -19,14 +22,51 @@ describe("lintBrand", () => {
     expect(lintBrand("The leveraged buyout closed. Start now.", VOCAB).some((x) => x.rule === 2)).toBe(false);
   });
 
+  it("RULE 2: matches a term across a double space or a line wrap", () => {
+    const doubleSpaceVocab = [{ never: "citizen developers", instead: "builders" }];
+    expect(
+      lintBrand("Built for citizen  developers everywhere. Start now.", doubleSpaceVocab).some(
+        (x) => x.rule === 2,
+      ),
+    ).toBe(true);
+    expect(
+      lintBrand("Built for citizen\ndevelopers everywhere. Start now.", doubleSpaceVocab).some(
+        (x) => x.rule === 2,
+      ),
+    ).toBe(true);
+  });
+
   it("RULE 7: flags the fast-paced-world opener", () => {
     const f = lintBrand("In today's fast-paced world, shipping is hard. Start now.", VOCAB);
+    expect(f.some((x) => x.rule === 7)).toBe(true);
+  });
+
+  it("RULE 7: flags the fast-paced-world opener with a curly apostrophe", () => {
+    const f = lintBrand("In today’s fast-paced world, shipping is hard. Start now.", VOCAB);
     expect(f.some((x) => x.rule === 7)).toBe(true);
   });
 
   it("RULE 7: flags It's not X, it's Y contrast framing", () => {
     const f = lintBrand("It's not a tool, it's a teammate. Start now.", VOCAB);
     expect(f.some((x) => x.rule === 7)).toBe(true);
+  });
+
+  it("RULE 7: does not flag a plain factual 'it's not free, it's $20' sentence", () => {
+    const f = lintBrand("It's not free, it's $20/month.", VOCAB);
+    expect(f.some((x) => x.rule === 7)).toBe(false);
+  });
+
+  it("RULE 7: reports every occurrence of a repeated AI tell, not just the first", () => {
+    const f = lintBrand(
+      "It's not a tool, it's a teammate. Later: it's not a chore, it's a delight.",
+      VOCAB,
+    );
+    expect(f.filter((x) => x.rule === 7)).toHaveLength(2);
+  });
+
+  it("RULE 7: passes copy with no AI tells (targeted negative)", () => {
+    const f = lintBrand("Build your first app today. It runs on real infrastructure. Start now.", VOCAB);
+    expect(f.some((x) => x.rule === 7)).toBe(false);
   });
 
   it("RULE 8: flags Learn more as a CTA", () => {
@@ -36,6 +76,19 @@ describe("lintBrand", () => {
 
   it("RULE 8: accepts an action verb CTA", () => {
     expect(lintBrand("Base1 builds apps. Start building now.", VOCAB).some((x) => x.rule === 8)).toBe(false);
+  });
+
+  it("RULE 8: does not flag 'more' as a substring of a longer word (word-boundary)", () => {
+    expect(lintBrand("We spread more joy every day.", VOCAB).some((x) => x.rule === 8)).toBe(false);
+  });
+
+  it("RULE 8: still flags a genuine 'read more' CTA", () => {
+    expect(lintBrand("Check out the results. Read more.", VOCAB).some((x) => x.rule === 8)).toBe(true);
+  });
+
+  it("RULE 8: matches a CTA across a double space or a line wrap", () => {
+    expect(lintBrand("Curious? Learn  more.", VOCAB).some((x) => x.rule === 8)).toBe(true);
+    expect(lintBrand("Curious? Learn\nmore.", VOCAB).some((x) => x.rule === 8)).toBe(true);
   });
 
   it("is case-insensitive", () => {
@@ -114,4 +167,46 @@ describe("parseVocabulary", () => {
     expect(banned).toContain("revolutionary");
     expect(banned).toContain("game-changing");
   });
+});
+
+describe("parse-then-lint round trip against the real canon", () => {
+  it("feeds copy with real canon-banned terms into lintBrand and gets rule-2 findings", () => {
+    const md = readFileSync(new URL("../../brand/voice-guide.md", import.meta.url), "utf8");
+    const vocab = parseVocabulary(md);
+    const findings = lintBrand("Our users can deploy containers with low-code. Start now.", vocab);
+    const rule2 = findings.filter((f) => f.rule === 2);
+    expect(rule2.some((f) => /"users"/i.test(f.message))).toBe(true);
+    expect(rule2.some((f) => /"low-code"/i.test(f.message))).toBe(true);
+  });
+});
+
+describe("cli-brand subprocess", () => {
+  // Resolved from this test file's own location (not process.cwd()) and
+  // passed to execFileSync as a discrete array element rather than a shell
+  // string, so a repo root path containing a space (as this one does)
+  // never needs manual quoting or escaping.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const repoRoot = resolve(here, "../..");
+  const cliPath = resolve(repoRoot, "src/lint/cli-brand.ts");
+
+  function runCli(input: string): { readonly status: number | null; readonly stderr: string } {
+    try {
+      execFileSync("npx", ["tsx", cliPath], { input, cwd: repoRoot, encoding: "utf8" });
+      return { status: 0, stderr: "" };
+    } catch (error) {
+      const e = error as { status: number | null; stderr: string };
+      return { status: e.status, stderr: e.stderr };
+    }
+  }
+
+  it("exits 2 and reports rule-2 findings for copy with canon-banned terms", () => {
+    const result = runCli("Our users can deploy containers with low-code. Start now.\n");
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("rule 2");
+  }, 30_000);
+
+  it("exits 0 for clean copy", () => {
+    const result = runCli("Batteries included. Start building now.\n");
+    expect(result.status).toBe(0);
+  }, 30_000);
 });
