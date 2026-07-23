@@ -30,3 +30,6 @@ assets/fonts/
 
 # OS
 .DS_Store
+
+# SDD scratch (progress ledger)
+.superpowers/
