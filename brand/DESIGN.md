@@ -9,8 +9,8 @@ colors:
   primary: "#FF6A00"      # THE accent: Base44 orange. One vivid color, total, kept scarce.
   muted: "#6D6A67"        # secondary text / captions
 typography:
-  display: "Dazzed        # display face — headlines only"
-  body: "Geist            # body face — everything else"
+  display: "Dazzed"        # display face — headlines only
+  body: "Geist"            # body face — everything else
   fallback: "system-ui, sans-serif"
 spacing:
   sm: "8px"
