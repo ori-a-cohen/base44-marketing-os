@@ -17,6 +17,10 @@ const write = (path: string, content: string) => ({
   tool_name: "Write", tool_input: { file_path: path, content },
 });
 
+const multiEdit = (path: string, edits: unknown) => ({
+  tool_name: "MultiEdit", tool_input: { file_path: path, edits },
+});
+
 describe("brand-lint hook", () => {
   it("blocks off-brand copy in a content path", () => {
     const r = runHook(write("content/post.md", "Leverage Base1. Learn more."));
@@ -78,5 +82,59 @@ describe("brand-lint hook", () => {
       input: "", encoding: "utf8", stdio: ["pipe", "pipe", "pipe"],
     });
     expect(result).toBe("");
+  });
+
+  it("blocks a MultiEdit with a banned term in the first hunk, in-scope path", () => {
+    const r = runHook(
+      multiEdit("content/post.md", [
+        { old_string: "a", new_string: "Our users can deploy fast." },
+        { old_string: "b", new_string: "Build your first app." },
+      ]),
+    );
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("rule");
+  });
+
+  it("blocks a MultiEdit with a banned term only in a later hunk (first hunk clean)", () => {
+    // A naive fix that only reads edits[0] would miss this.
+    const r = runHook(
+      multiEdit("content/post.md", [
+        { old_string: "a", new_string: "Build your first app." },
+        { old_string: "b", new_string: "Our users can deploy fast." },
+      ]),
+    );
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("rule");
+  });
+
+  it("allows a MultiEdit where every hunk is clean, in-scope path", () => {
+    const r = runHook(
+      multiEdit("content/post.md", [
+        { old_string: "a", new_string: "Build your first app." },
+        { old_string: "b", new_string: "Start building today." },
+      ]),
+    );
+    expect(r.code).toBe(0);
+  });
+
+  it("does NOT fire a MultiEdit with a banned term on an out-of-scope path", () => {
+    const r = runHook(
+      multiEdit("brand/rules.md", [
+        { old_string: "a", new_string: "Our users can deploy fast." },
+      ]),
+    );
+    expect(r.code).toBe(0);
+  });
+
+  it("does not crash on a MultiEdit with a malformed or missing edits array", () => {
+    expect(runHook({ tool_name: "MultiEdit", tool_input: { file_path: "content/post.md" } }).code).toBe(0);
+    expect(
+      runHook({ tool_name: "MultiEdit", tool_input: { file_path: "content/post.md", edits: "not-an-array" } }).code,
+    ).toBe(0);
+    expect(
+      runHook(
+        multiEdit("content/post.md", [{ old_string: "a" }, { new_string: 42 }, null, "oops"]),
+      ).code,
+    ).toBe(0);
   });
 });
