@@ -171,7 +171,19 @@ export async function verifyPageHtml(html: string): Promise<VerifyResult> {
     const detail = err instanceof Error ? err.message : String(err);
     failures.push(`verification error: ${detail}`);
   } finally {
-    await browser.close();
+    // browser.close() can itself reject (e.g. the browser process already
+    // crashed) -- a real Playwright failure mode. Letting that propagate
+    // would turn an already-computed result into an uncaught rejection,
+    // reproducing the exact bug this function's try/catch above exists to
+    // eliminate. A close failure is a real cost (a leaked/broken browser
+    // process), so it is surfaced to stderr rather than swallowed silently,
+    // but it must never discard the verdict already computed in `failures`.
+    try {
+      await browser.close();
+    } catch (closeErr) {
+      const detail = closeErr instanceof Error ? closeErr.message : String(closeErr);
+      console.error(`verifyPageHtml: browser.close() failed: ${detail}`);
+    }
   }
   return { pass: failures.length === 0, failures };
 }
