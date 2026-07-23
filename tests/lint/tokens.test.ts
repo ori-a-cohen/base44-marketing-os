@@ -57,6 +57,10 @@ describe("parseTokens edge cases", () => {
     expect(result.colors).toEqual({ primary: "#FF6A00" });
     expect(result).not.toHaveProperty("components");
   });
+
+  it("throws a clear error distinguishing empty front matter from absent front matter", () => {
+    expect(() => parseTokens("---\n---\n")).toThrow(/front matter is empty/);
+  });
 });
 
 describe("findOffTokenValues", () => {
@@ -81,5 +85,63 @@ describe("findOffTokenValues", () => {
 
   it("accepts white and black shorthand used for nothing visual", () => {
     expect(findOffTokenValues("no colours here at all", tokens)).toEqual([]);
+  });
+});
+
+describe("findOffTokenValues — colour-context scoping (Fix 1)", () => {
+  it("fires on an off-token hex in a colour property position", () => {
+    expect(findOffTokenValues("color: #FF6B00;", tokens)).toHaveLength(1);
+  });
+
+  it("stays silent on the exact canon value in a colour property position", () => {
+    expect(findOffTokenValues("background: #F9F7F4;", tokens)).toEqual([]);
+  });
+
+  it("fires on an off-token hex in a colour attribute position", () => {
+    const f = findOffTokenValues('fill="#00A3FF"', tokens);
+    expect(f).toHaveLength(1);
+  });
+
+  it("stays silent on a hex-shaped issue reference in prose", () => {
+    expect(findOffTokenValues("See issue #123456 for details", tokens)).toEqual([]);
+  });
+
+  it("stays silent on a hex-shaped word in prose", () => {
+    expect(findOffTokenValues("#decade", tokens)).toEqual([]);
+  });
+
+  it("stays silent on a hex-shaped value inside a non-colour attribute", () => {
+    expect(findOffTokenValues('<h1 id="#FF6A00">', tokens)).toEqual([]);
+  });
+
+  it("recognises the canon hex regardless of case in a colour position", () => {
+    expect(findOffTokenValues("color: #ff6a00;", tokens)).toEqual([]);
+    expect(findOffTokenValues("color: #Ff6A00;", tokens)).toEqual([]);
+  });
+
+  it("fires on an off-token hex regardless of case in a colour position", () => {
+    expect(findOffTokenValues("color: #ff6b00;", tokens)).toHaveLength(1);
+  });
+});
+
+describe("findOffTokenValues — rgb()/hsl() detection (Fix 2)", () => {
+  it("stays silent on rgb() expressing the canon primary exactly", () => {
+    expect(findOffTokenValues("color: rgb(255, 106, 0);", tokens)).toEqual([]);
+  });
+
+  it("fires on an off-token rgb() value", () => {
+    expect(findOffTokenValues("color: rgb(255, 107, 0);", tokens)).toHaveLength(1);
+  });
+
+  it("treats a translucent rgba() of the canon primary as off-token (documented policy)", () => {
+    const f = findOffTokenValues("color: rgba(255, 106, 0, 0.5);", tokens);
+    expect(f).toHaveLength(1);
+    expect(f[0]?.message.toLowerCase()).toContain("translucent");
+  });
+
+  it("fires on hsl() and names the notation in the message", () => {
+    const f = findOffTokenValues("color: hsl(24, 100%, 50%);", tokens);
+    expect(f).toHaveLength(1);
+    expect(f[0]?.message.toLowerCase()).toContain("hsl");
   });
 });
