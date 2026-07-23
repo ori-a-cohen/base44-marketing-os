@@ -130,17 +130,26 @@ visit, recorded by the same visit logger a real run would use. If you run the de
 through to the card's own generated page yourself before running `npm run measure`, you'll see your
 own click count toward the same real outcome.
 
-## Base44 hosting: driver-ready, not deployed
+## Base44 hosting: live
 
-The plan explored hosting the board itself on Base44 (entities, functions, a public `site deploy`
-URL). **That is not what shipped in this branch.** What exists today: a `CardStore` interface
-(`src/cards/card-store.ts`) with a `JsonlCardStore` implementation, and a reusable contract test
-suite (`tests/cards/card-store-contract.test.ts`) that any driver must satisfy — designed to skip
-cleanly (not fail) when a driver's prerequisites (e.g. a future `BASE44_APP_ID`) are absent, exactly
-so a hosted driver could slot in later without touching the cold-run path. No `Base44CardStore`
-exists, no Base44 project has been created for this repo, and there is no live board URL or public
-deployment to share. The honest framing: **driver-ready** — a JSONL driver ships today; a Base44
-entity driver slots in behind the same `CardStore` contract whenever that work happens.
+The board is hosted on Base44 as a real Base44 app — the dogfooding is structural, not cosmetic.
+
+- **Public board:** https://roundtrip-board-ecceb49b.base44.app — the same honest loop-closure
+  number this repo computes locally, served from hosted data.
+- **Storage is driver-based.** `src/cards/card-store.ts` defines a `CardStore` interface with a
+  default `JsonlCardStore` (the cold-run path — zero credentials). Beside it,
+  `src/cards/base44-card-store.ts` is a `Base44CardStore` over the Base44 SDK, selected by
+  `ROUNDTRIP_STORE=base44` (needs `BASE44_APP_ID`). Both satisfy the same reusable contract suite
+  (`tests/cards/card-store-contract.test.ts`), which skips cleanly when `BASE44_APP_ID` is absent, so
+  a cold clone never touches Base44 and still closes the loop.
+- **Hosted pieces** (in a separate project outside this repo, so the fork stays clean): `Card` and
+  `Visit` entities mirroring `src/cards/schema.ts`; a client board plus a `board` serverless function
+  that runs the *same* vendored, byte-identical compute layer; a token-gated `cards` ingest function
+  (closed by default — no token, no writes) and a `visit` function that cannot set provenance. The
+  headline number obeys the identical honesty discipline whether computed locally or in the cloud.
+
+The cold-run guarantee is untouched: `ROUNDTRIP_STORE` defaults to `jsonl`, and `npm run demo` still
+closes the loop with zero API keys and no network.
 
 ## Assignment deliverables
 
