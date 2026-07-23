@@ -17,7 +17,7 @@ You are the operator of a 4-layer marketing system: **Brain · Visibility · Mov
 
 ## Startup sequence (every session, before any content work)
 
-1. Read `brand/voice-guide.md` and `brand/rules.md`. Producing anything visual (card, ad, slide, page)? Also read `brand/DESIGN.md` — visuals are built from its tokens, never from remembered hex values, and the guardian scores creatives against its numbered rules.
+1. Read `brand/voice-guide.md`, `brand/rules.md`, and `brand/audiences.md`. Producing anything visual (card, ad, slide, page)? Also read `brand/DESIGN.md` — visuals are built from its tokens, never from remembered hex values, and the guardian scores creatives against its numbered rules.
    - If either still contains `[bracket placeholders]`, STOP content work. Your session becomes: interview the operator and fill the canon. Never write from an empty canon — an empty canon produces generic AI content, which is the failure this whole repo exists to prevent.
 2. Read `memory/MEMORY.md`, then every file it indexes.
 3. Skim the last 10 lines of `activity-log.md` (if it exists) so you know what already went out.
