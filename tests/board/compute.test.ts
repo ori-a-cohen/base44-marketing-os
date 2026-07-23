@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { computeBoard, EVIDENCE_THRESHOLD } from "../../src/board/compute.js";
 import { parseCard, type Card } from "../../src/cards/schema.js";
+import { loopClosure } from "../../src/metric/loop-closure.js";
+import { getSurface, normalizeScore } from "../../src/metric/surfaces.js";
 
 const NOW = new Date("2026-07-23T12:00:00Z");
 const dayAgo = new Date(NOW.getTime() - 86_400_000).toISOString();
@@ -128,5 +130,95 @@ describe("computeBoard", () => {
     const view = computeBoard([card({ id: "a" })], NOW);
     const s = view.perSurface.find((x) => x.surface === "landing_page");
     expect(s?.score).toBeNull();
+  });
+
+  // --- Dedup-drift regression: every aggregation must count logical cards,
+  // not raw append-only log rows. ---
+
+  describe("dedup drift: current version drives every aggregation", () => {
+    it("dedupes two version-rows of one card in a cohort: n is 1, meanScore reflects only the current version", () => {
+      const outcomeFor = (id: string, value: number) => ({
+        card_id: id, surface: "landing_page", metric: "visits", value,
+        unit: "count", measured_at: dayAgo, source: "test", provenance: "real" as const,
+      });
+      const v1 = card({
+        id: "regen-cohort-1", version: 1, audience_id: "solo-builder",
+        outcome: outcomeFor("regen-cohort-1", 5),
+      });
+      const v2 = card({
+        id: "regen-cohort-1", version: 2, audience_id: "solo-builder",
+        outcome: outcomeFor("regen-cohort-1", 40),
+      });
+
+      const view = computeBoard([v1, v2], NOW);
+      const cohort = view.cohorts.byAudience.find((c) => c.key === "solo-builder");
+
+      expect(cohort?.n).toBe(1);
+      expect(cohort?.meanScore).toBe(normalizeScore("landing_page", 40));
+    });
+
+    it("a card whose surface changed across versions appears in exactly one per-surface row, and per-surface closed sums to the headline closed", () => {
+      const v1 = card({
+        id: "regen-surface-1", version: 1, surface: "aeo_check", channel: "aeo_check",
+        status: "shipped", shipped_at: dayAgo,
+      });
+      const v2 = card({
+        id: "regen-surface-1", version: 2, surface: "landing_page", channel: "landing_page",
+        status: "shipped", shipped_at: dayAgo,
+        outcome: {
+          card_id: "regen-surface-1", surface: "landing_page", metric: "visits", value: 10,
+          unit: "count", measured_at: dayAgo, source: "test", provenance: "real",
+        },
+      });
+
+      const view = computeBoard([v1, v2], NOW);
+
+      const onLandingPage = view.perSurface.filter((s) => s.surface === "landing_page");
+      const onAeoCheck = view.perSurface.filter((s) => s.surface === "aeo_check");
+      expect(onLandingPage).toHaveLength(1);
+      expect(onAeoCheck).toHaveLength(0);
+
+      const closedSum = view.perSurface.reduce((sum, s) => sum + s.closed, 0);
+      const eligibleSum = view.perSurface.reduce((sum, s) => sum + s.eligible, 0);
+      expect(closedSum).toBe(view.metric.closed);
+      expect(eligibleSum).toBeLessThanOrEqual(view.metric.eligible);
+    });
+
+    it("computes per-surface score only from the current version, never a superseded row", () => {
+      const v1 = card({
+        id: "regen-score-1", version: 1,
+        outcome: {
+          card_id: "regen-score-1", surface: "landing_page", metric: "visits", value: 999,
+          unit: "count", measured_at: dayAgo, source: "test", provenance: "real",
+        },
+      });
+      const v2 = card({
+        id: "regen-score-1", version: 2,
+        outcome: {
+          card_id: "regen-score-1", surface: "landing_page", metric: "visits", value: 10,
+          unit: "count", measured_at: dayAgo, source: "test", provenance: "real",
+        },
+      });
+
+      const view = computeBoard([v1, v2], NOW);
+      const s = view.perSurface.find((x) => x.surface === "landing_page");
+      expect(s?.score).toBe(normalizeScore("landing_page", 10));
+    });
+
+    it("keeps the headline identical to loopClosure on the raw, un-deduped cards -- the fix must not touch headline delegation", () => {
+      const v1 = card({ id: "headline-check-1", version: 1 });
+      const v2 = card({
+        id: "headline-check-1", version: 2, surface: "aeo_check", channel: "aeo_check",
+        status: "shipped", shipped_at: dayAgo,
+      });
+      const cardsSet = [v1, v2, measured("headline-check-2", 20)];
+
+      const view = computeBoard(cardsSet, NOW);
+      const direct = loopClosure(
+        cardsSet.filter((c) => getSurface(c.surface ?? c.channel).status !== "stub"),
+        NOW,
+      );
+      expect(view.metric).toEqual(direct);
+    });
   });
 });

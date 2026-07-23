@@ -1,5 +1,5 @@
 import { type Card, COUNTING_PROVENANCES } from "../cards/schema.js";
-import { loopClosure, formatLoopClosure, type LoopClosure } from "../metric/loop-closure.js";
+import { loopClosure, formatLoopClosure, dedupeToLatestVersion, type LoopClosure } from "../metric/loop-closure.js";
 import { getSurface, normalizeScore, SURFACES } from "../metric/surfaces.js";
 
 /** No pattern is reported as a finding below this many observations in a cell. */
@@ -73,6 +73,11 @@ function meanOf(scores: readonly number[]): number | null {
   return scores.length === 0 ? null : scores.reduce((a, b) => a + b, 0) / scores.length;
 }
 
+/**
+ * `cards` here must already be deduped to one row per logical id (see
+ * `dedupeToLatestVersion`) -- `n` counts logical cards, not log rows, and it
+ * gates the evidence threshold, so a regenerated card must never inflate it.
+ */
 function cohortRows(cards: readonly Card[], keyOf: (c: Card) => string | null): CohortRow[] {
   const groups = new Map<string, Card[]>();
   for (const c of cards) {
@@ -100,6 +105,10 @@ function cohortRows(cards: readonly Card[], keyOf: (c: Card) => string | null): 
  * the outcome. Seeded outcomes are excluded from the pool entirely: a fixture
  * card can never manufacture "supported" status for a rule that has no real
  * evidence behind it.
+ *
+ * `cards` here must already be deduped to one row per logical id -- a
+ * regenerated card's superseded verdicts must not double-count support for a
+ * rule.
  */
 function ruleAccountability(cards: readonly Card[]): RuleRow[] {
   const measured = cards.filter(hasCountableOutcome);
@@ -114,15 +123,45 @@ function ruleAccountability(cards: readonly Card[]): RuleRow[] {
 }
 
 export function computeBoard(cards: readonly Card[], now: Date): BoardView {
+  // The one definition of "current version of a card" for every aggregation
+  // below that counts logical cards or reads a card's current state: exactly
+  // one row per id (see dedupeToLatestVersion in loop-closure.ts).
+  const currentCards = dedupeToLatestVersion(cards);
+
+  // Headline: deliberately NOT computed from currentCards. loopClosure needs
+  // each id's full shipped history to judge eligibility (a matured,
+  // unmeasured v1 must not vanish from the denominator just because a v2 was
+  // drafted on top of it) -- so the raw, un-deduped cards are handed to it
+  // unchanged, exactly as before this fix, and it performs its own identity
+  // resolution internally.
   const metricCards = cards.filter(isMetricEligibleSurface);
   const metric = loopClosure(metricCards, now);
 
-  const surfaces = [...new Set(metricCards.map(surfaceOf))];
+  // Per-surface grouping keys off each card's CURRENT surface: a card whose
+  // shipped history spans two surfaces across versions belongs to exactly
+  // one row, the one matching its current version -- never both.
+  const currentSurfaceById = new Map<string, string>();
+  for (const c of currentCards) currentSurfaceById.set(c.id, surfaceOf(c));
+
+  const eligibleCurrentCards = currentCards.filter(isMetricEligibleSurface);
+  const surfaces = [...new Set(eligibleCurrentCards.map(surfaceOf))];
+
   const perSurface: SurfaceRow[] = surfaces.map((surface) => {
-    const subset = metricCards.filter((c) => surfaceOf(c) === surface);
-    const sub = loopClosure(subset, now);
-    const scores = subset.map(scoreOf).filter((s): s is number => s !== null);
+    // Closed/eligible: bucket ALL raw rows (every version) belonging to ids
+    // whose CURRENT surface is this one, then delegate to loopClosure so it
+    // still sees each id's full shipped history -- exactly the same
+    // full-history requirement that keeps the headline correct above. This
+    // is what stops one logical card from being counted closed on two
+    // surfaces at once.
+    const rawSubset = cards.filter((c) => currentSurfaceById.get(c.id) === surface);
+    const sub = loopClosure(rawSubset, now);
+
+    // Score: the current version's outcome only -- a superseded row's value
+    // must never pollute the mean.
+    const currentSubset = eligibleCurrentCards.filter((c) => surfaceOf(c) === surface);
+    const scores = currentSubset.map(scoreOf).filter((s): s is number => s !== null);
     const mean = meanOf(scores);
+
     return {
       surface,
       label: getSurface(surface).label,
@@ -137,10 +176,10 @@ export function computeBoard(cards: readonly Card[], now: Date): BoardView {
     metricLabel: formatLoopClosure(metric),
     perSurface,
     cohorts: {
-      byAudience: cohortRows(cards, (c) => c.audience_id),
-      byCampaign: cohortRows(cards, (c) => c.campaign_id),
+      byAudience: cohortRows(currentCards, (c) => c.audience_id),
+      byCampaign: cohortRows(currentCards, (c) => c.campaign_id),
     },
-    ruleAccountability: ruleAccountability(cards),
+    ruleAccountability: ruleAccountability(currentCards),
     stubSurfaces: Object.values(SURFACES).filter((s) => s.status === "stub").map((s) => s.id),
     cards,
   };

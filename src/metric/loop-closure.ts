@@ -127,6 +127,28 @@ function isClosed(card: Card, now: Date): boolean {
   return age <= getSurface(card.surface ?? card.channel).ttlMs;
 }
 
+/**
+ * The current (highest-version) row for each logical card id -- exactly one
+ * row per id, the same "which version is live" resolution `loopClosure` uses
+ * internally for judging closure. This is the single source of truth for
+ * "the current version of a card", reused by every board aggregation that
+ * counts logical cards rather than raw log rows (cohorts, per-surface
+ * grouping, rule accountability).
+ *
+ * This is NOT a substitute input for `loopClosure` itself: `loopClosure`'s
+ * eligibility computation needs each id's full shipped history (see
+ * `groupLatestByCard` above and its "Fix 1" tests) -- a matured, unmeasured
+ * v1 must not vanish from the denominator merely because a v2 was drafted on
+ * top of it. Pre-collapsing to one row per id before calling `loopClosure`
+ * would lose exactly that history. Callers that need closed/eligible counts
+ * must still hand `loopClosure` the raw, un-deduped rows for the ids they
+ * care about; only callers that need "what is the current state of this
+ * logical card" (its surface, its outcome, its verdicts) should use this.
+ */
+export function dedupeToLatestVersion(cards: readonly Card[]): readonly Card[] {
+  return groupLatestByCard(cards).map((rows) => rows.latestOverall);
+}
+
 export function loopClosure(cards: readonly Card[], now: Date): LoopClosure {
   let malformed = 0;
   let inFlight = 0;
