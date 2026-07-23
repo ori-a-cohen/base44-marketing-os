@@ -51,4 +51,21 @@ describe("verifyPageHtml", () => {
     expect(r.pass).toBe(false);
     expect(r.failures.join(" ")).toMatch(/cta-rejected|rejected/i);
   }, 30_000);
+
+  // Task 14's report: `page.locator('meta[name="x-card-id"]').getAttribute(...)`
+  // auto-waits on Playwright's default 30s actionability timeout when zero
+  // elements match -- exactly the state a page missing this tag is in. That
+  // made verifyPageHtml hang for ~30s and then reject instead of returning
+  // {pass:false}. This test's own timeout is set to a small fraction of the
+  // old hang (5s) specifically so a regression fails fast and loud (a timed
+  // out test) rather than silently costing 30s per CI run.
+  it("fails a page missing the x-card-id meta tag, and returns promptly rather than hanging", async () => {
+    const stripped = renderPage(spec, tokens).replace(/<meta name="x-card-id"[^>]*>\n?/, "");
+    const start = Date.now();
+    const r = await verifyPageHtml(stripped);
+    const elapsedMs = Date.now() - start;
+    expect(r.pass).toBe(false);
+    expect(r.failures.join(" ")).toMatch(/x-card-id/i);
+    expect(elapsedMs).toBeLessThan(5_000);
+  }, 5_000);
 });

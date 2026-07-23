@@ -131,7 +131,18 @@ export async function verifyPageHtml(html: string): Promise<VerifyResult> {
       }
     }
 
-    const cardId = await page.locator('meta[name="x-card-id"]').getAttribute("content");
+    // Read via page.evaluate rather than
+    // `page.locator('meta[name="x-card-id"]').getAttribute("content")`: a
+    // Locator's getAttribute auto-waits on the default 30s actionability
+    // timeout when zero elements match, which is exactly the state a page
+    // missing this tag is in -- the check this line exists to catch would
+    // hang for 30s and then reject instead of reporting a failure. evaluate
+    // runs a plain DOM query with no actionability wait, so a missing tag
+    // resolves to `null` immediately and falls into the ordinary failures
+    // path below.
+    const cardId = await page.evaluate(
+      () => document.querySelector('meta[name="x-card-id"]')?.getAttribute("content") ?? null,
+    );
     if (!cardId) failures.push("Page is missing the x-card-id meta tag.");
 
     const bodyText = await page.locator("body").innerText();
@@ -143,6 +154,22 @@ export async function verifyPageHtml(html: string): Promise<VerifyResult> {
     if (scrollW > MOBILE_WIDTH + 1) {
       failures.push(`Horizontal overflow at ${MOBILE_WIDTH}px: scrollWidth is ${scrollW}.`);
     }
+  } catch (err) {
+    // Any unexpected Playwright rejection (a page crash, a navigation error,
+    // a future check that reintroduces the auto-wait hazard above) must
+    // become a controlled outcome, never an uncaught rejection -- that is
+    // this whole function's honesty property. Reported as an ordinary
+    // `failures` entry (pass:false) rather than `skippedReason`:
+    // `skippedReason` is reserved for "verification could not even start"
+    // (no Chromium binary, launch failure) -- infrastructure problems
+    // orthogonal to the page under test. This branch runs only after a
+    // browser launched and a page was already open, so whatever failed did
+    // so while actually looking at this page's content; treating that as a
+    // fail (exit 2, blocks shipping) rather than a skip (exit 3) is the
+    // safer default -- a page that broke the verifier gets treated as
+    // unshippable, not waved through as "infra issue, retry later".
+    const detail = err instanceof Error ? err.message : String(err);
+    failures.push(`verification error: ${detail}`);
   } finally {
     await browser.close();
   }
