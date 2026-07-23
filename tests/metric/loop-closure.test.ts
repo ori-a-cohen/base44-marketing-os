@@ -166,17 +166,17 @@ describe("loop-closure rate — the four honesty rules", () => {
     });
 
     it("a v2 appearing before its v1 in the file still wins on version, not file order", () => {
+      // v1 is measured and v2 is not, so the rows disagree: a position-based
+      // tie rule (last row in the file wins) would say closed, while the
+      // correct version-over-position rule says not closed.
       const v1 = shipped({
         id: "order-1", shippedHoursAgo: 48,
         outcome: { value: 1, provenance: "real", measuredHoursAgo: 40 }, version: 1,
       });
-      const v2 = shipped({
-        id: "order-1", shippedHoursAgo: 24,
-        outcome: { value: 9, provenance: "real", measuredHoursAgo: 1 }, version: 2,
-      });
+      const v2 = shipped({ id: "order-1", shippedHoursAgo: 24, version: 2 });
       const r = loopClosure([v2, v1], NOW);
       expect(r.eligible).toBe(1);
-      expect(r.closed).toBe(1);
+      expect(r.closed).toBe(0);
     });
 
     it("v1 shipped and measured, no v2: eligible and closed (unchanged)", () => {
@@ -226,6 +226,40 @@ describe("loop-closure rate — the four honesty rules", () => {
       const r = loopClosure([v1, v2], NOW);
       expect(r.eligible).toBe(1);
       expect(r.closed).toBe(1);
+    });
+
+    it("re-shipping a mature, unmeasured v1 as a fresh v2 does not shrink the denominator", () => {
+      const v1 = shipped({ id: "reship-1", shippedHoursAgo: 24 * 3, version: 1 });
+      const v2 = shipped({ id: "reship-1", shippedHoursAgo: 1 / 60, version: 2 });
+      const r = loopClosure([v1, v2], NOW);
+      expect(r.eligible).toBe(1);
+      expect(r.inFlight).toBe(0);
+      expect(r.closed).toBe(0);
+    });
+
+    it("a corrupt shipped_at on the newest version does not mask a well-formed, matured earlier version", () => {
+      const v1 = shipped({ id: "corrupt-1", shippedHoursAgo: 24 * 3, version: 1 });
+      const v2 = parseCard({
+        id: "corrupt-1", channel: "landing_page", surface: "landing_page", topic: "Base1",
+        status: "shipped", created: "2026-07-20", version: 2, shipped_at: null,
+      });
+      const r = loopClosure([v1, v2], NOW);
+      expect(r.eligible).toBe(1);
+      expect(r.malformed).toBe(0);
+    });
+  });
+
+  describe("Fix 2 (round 3): isClosed requires the latest row to itself be shipped/measured", () => {
+    it("a hand-edited latest row reverted to drafted, but still carrying shipped_at and an outcome, does not close the loop", () => {
+      const v1 = shipped({ id: "hand-edit-1", shippedHoursAgo: 24 * 3, version: 1 }); // matured, unmeasured -> eligible
+      const shippedV2 = shipped({
+        id: "hand-edit-1", shippedHoursAgo: 24,
+        outcome: { value: 5, provenance: "real", measuredHoursAgo: 1 }, version: 2,
+      });
+      const handEditedV2: Card = { ...shippedV2, status: "drafted" };
+      const r = loopClosure([v1, handEditedV2], NOW);
+      expect(r.eligible).toBe(1);
+      expect(r.closed).toBe(0);
     });
   });
 
@@ -343,6 +377,14 @@ describe("loop-closure rate — the four honesty rules", () => {
       ], NOW);
       expect(r.malformed).toBe(0);
       expect(formatLoopClosure(r)).toBe("1 of 1 measured");
+    });
+
+    it("appends the malformed count even when the rate is null (no eligible cards at all)", () => {
+      const r = loopClosure([shippedMalformed("bad-only")], NOW);
+      expect(r.rate).toBeNull();
+      expect(r.eligible).toBe(0);
+      expect(r.malformed).toBe(1);
+      expect(formatLoopClosure(r)).toBe("— (1 with an unreadable ship time)");
     });
   });
 });
