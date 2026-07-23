@@ -56,3 +56,57 @@ describe("renderPage in a real browser", () => {
     await page.close();
   }, 15_000);
 });
+
+/**
+ * Real-browser confirmation of the CTA href scheme fix. The unit tests in
+ * page.test.ts prove the string-level output; this proves the thing that
+ * actually matters -- that clicking the rendered anchor in a real browser
+ * never runs the injected payload, because the href it navigates to is the
+ * inert fallback, not the `javascript:` URI. Deterministic: no navigation
+ * actually leaves the page (the fallback is `#`), so there is nothing to
+ * wait on beyond the click itself.
+ */
+describe("renderPage CTA href scheme rejection in a real browser", () => {
+  const tokens = parseTokens(readFileSync("brand/DESIGN.md", "utf8"));
+  const spec: PageSpec = {
+    cardId: "cc-100",
+    slug: "base1",
+    headline: "Base1 builds your app",
+    subhead: "Base44's first in-house model.",
+    body: "Trained on real building patterns.",
+    ctaLabel: "Start building",
+    ctaHref: "javascript:window.__xss_href_proof=99;//",
+    audienceId: "solo-builder",
+    campaignId: "base1-launch",
+  };
+
+  let browser: Browser;
+
+  beforeAll(async () => {
+    browser = await chromium.launch();
+  }, 30_000);
+
+  afterAll(async () => {
+    await browser.close();
+  });
+
+  it("clicking the CTA does not execute the javascript: payload", async () => {
+    const html = renderPage(spec, tokens);
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "load" });
+
+    await page.click("a.cta");
+
+    const xssHrefProof = await page.evaluate(
+      () => (window as unknown as { __xss_href_proof?: number }).__xss_href_proof,
+    );
+    const href = await page.evaluate(
+      () => (document.querySelector(".cta") as HTMLAnchorElement | null)?.getAttribute("href"),
+    );
+
+    expect(xssHrefProof).toBeUndefined();
+    expect(href).toBe("#");
+
+    await page.close();
+  }, 15_000);
+});

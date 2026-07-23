@@ -35,17 +35,71 @@ function esc(value: string): string {
 }
 
 /**
+ * Schemes a CTA `href` is allowed to resolve to. Everything else --
+ * `javascript:`, `data:`, `vbscript:`, `file:`, and any other scheme -- is a
+ * code-execution or local-resource-access vector when placed in an anchor's
+ * `href` and must never reach rendered output.
+ */
+const ALLOWED_HREF_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:"]);
+
+/**
+ * Inert fallback used in place of a CTA href whose scheme was rejected.
+ * Never navigates anywhere, so a rejected link fails safe rather than
+ * quietly doing nothing under a live-looking button. Rejections are also
+ * logged (see `buildTrackedUrl`) so the failure is visible to the operator,
+ * not just to whoever inspects the rendered markup.
+ */
+export const REJECTED_HREF = "#";
+
+/**
+ * Reports whether `value` would resolve to an http/https navigation if a
+ * real browser followed it from an http(s) page. Resolving against a dummy
+ * http base (rather than pattern-matching the raw string) is what makes this
+ * immune to case, whitespace, and control-character evasions
+ * (`JaVaScRiPt:`, `java\tscript:`, a leading newline): the WHATWG URL
+ * algorithm strips ASCII tab/newline characters and leading/trailing C0
+ * controls, and lowercases the scheme, before this function ever sees
+ * `.protocol`. A value with no scheme of its own (a relative path, or a
+ * protocol-relative `//host/path`) inherits the dummy base's `http:` and is
+ * treated as safe; only a value that declares its own non-http(s) scheme is
+ * rejected. Protocol-relative hrefs are a deliberate exception here: they
+ * are a same-scheme host-redirect concern, not a script-execution one, and
+ * rejecting them would also reject legitimate relative CTAs like `/pricing`
+ * that fail `new URL()` without a base for the same structural reason.
+ */
+function resolvesToHttpScheme(value: string): boolean {
+  try {
+    return ALLOWED_HREF_PROTOCOLS.has(new URL(value, "http://sentinel.invalid/").protocol);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The card id (and campaign) ride every outbound link, so attribution is a
  * property of the artifact itself rather than something bolted on later.
  *
- * `new URL(base)` throws on a malformed/non-absolute `ctaHref` -- and a
- * malformed href is a data problem the renderer should degrade around, not
- * something that should take down an entire page render. When parsing
- * fails, the tracking params are appended to the raw string by hand instead
- * of via `URLSearchParams`, so the caller still gets a link (with tracking
+ * Scheme validation happens first, before any tracking params are attached,
+ * so a rejected href is rejected outright rather than shipped with UTM
+ * params glued onto a `javascript:` URI. `new URL(base)` throws on a
+ * malformed/non-absolute `ctaHref` that *did* pass the scheme check (a
+ * relative path, or a string that is not a URL at all) -- and that is a
+ * data problem the renderer should degrade around, not something that
+ * should take down an entire page render. When parsing fails, the tracking
+ * params are appended to the raw string by hand instead of via
+ * `URLSearchParams`, so the caller still gets a link (with tracking
  * attached) rather than an uncaught exception.
  */
 export function buildTrackedUrl(base: string, spec: PageSpec): string {
+  if (!resolvesToHttpScheme(base)) {
+    console.error(
+      `[render/page] rejected CTA href with a disallowed scheme for card "${spec.cardId}": ` +
+        `${JSON.stringify(base)}. Only http: and https: are permitted; ` +
+        `falling back to "${REJECTED_HREF}".`,
+    );
+    return REJECTED_HREF;
+  }
+
   const params: ReadonlyArray<readonly [string, string]> = [
     ["utm_source", "landing_page"],
     ["utm_medium", "owned"],
@@ -102,7 +156,14 @@ function buildStyleSheet(tokens: DesignTokens): string {
 
 /** Turns an approved PageSpec plus design tokens into a self-contained landing page document. */
 export function renderPage(spec: PageSpec, tokens: DesignTokens): string {
-  const cta = buildTrackedUrl(spec.ctaHref, spec);
+  const trackedCta = buildTrackedUrl(spec.ctaHref, spec);
+  // Defense in depth: re-validate the scheme immediately before writing it
+  // into the `href` attribute, independent of buildTrackedUrl's own check.
+  // buildTrackedUrl is the only caller of this function today, so this can
+  // never fire in practice -- but it means renderPage stays safe on its own
+  // terms even if a future refactor hands it a pre-built href that skipped
+  // buildTrackedUrl entirely.
+  const cta = resolvesToHttpScheme(trackedCta) ? trackedCta : REJECTED_HREF;
 
   return `<!doctype html>
 <html lang="en">

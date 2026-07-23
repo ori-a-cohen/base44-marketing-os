@@ -1,7 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseTokens } from "../../src/lint/tokens.js";
-import { renderPage, buildTrackedUrl, MARKER_TEXT, type PageSpec } from "../../src/render/page.js";
+import {
+  renderPage,
+  buildTrackedUrl,
+  MARKER_TEXT,
+  REJECTED_HREF,
+  type PageSpec,
+} from "../../src/render/page.js";
 import { findOffTokenValues } from "../../src/lint/tokens.js";
 
 const tokens = parseTokens(readFileSync("brand/DESIGN.md", "utf8"));
@@ -151,5 +157,72 @@ describe("buildTrackedUrl", () => {
     const result = buildTrackedUrl("not a url?ref=x", spec);
     expect(result).toContain("ref=x");
     expect(result).toContain("&utm_source=landing_page");
+  });
+});
+
+describe("buildTrackedUrl scheme rejection", () => {
+  // Browser-confirmed exploit: the trailing "//" comments out the appended
+  // UTM query so it never breaks the injected JS syntax.
+  const hostileSchemes: ReadonlyArray<readonly [string, string]> = [
+    ["javascript:", "javascript:window.__xss_href_proof=99;//"],
+    ["data:", "data:text/html,<script>window.__xss_href_proof=99</script>"],
+    ["vbscript:", "vbscript:msgbox(1)"],
+    ["mixed-case javascript:", "JaVaScRiPt:window.__xss_href_proof=99"],
+  ];
+
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    stderrSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+  });
+
+  for (const [label, href] of hostileSchemes) {
+    it(`rejects ${label} and falls back to the safe placeholder`, () => {
+      const result = buildTrackedUrl(href, spec);
+      expect(result).toBe(REJECTED_HREF);
+      expect(result).not.toContain("javascript");
+      expect(result).not.toContain("__xss_href_proof");
+      expect(stderrSpy).toHaveBeenCalled();
+    });
+  }
+
+  it("rejects whitespace/control-character evasions of javascript:", () => {
+    const evasions = [
+      "java\tscript:window.__xss_href_proof=99",
+      "\njavascript:window.__xss_href_proof=99",
+      "  javascript:window.__xss_href_proof=99  ",
+      "java\nscript:window.__xss_href_proof=99",
+    ];
+    for (const href of evasions) {
+      expect(buildTrackedUrl(href, spec), href).toBe(REJECTED_HREF);
+    }
+  });
+
+  it("still allows a normal https href through with UTM parameters intact", () => {
+    const result = buildTrackedUrl("https://base44.com/", spec);
+    expect(result.startsWith("https://base44.com/")).toBe(true);
+    expect(result).toContain("utm_source=landing_page");
+    expect(result).toContain("utm_campaign=base1-launch");
+    expect(result).toContain("utm_content=cc-100");
+  });
+
+  it("renderPage renders the safe placeholder href for a javascript: CTA, not the payload", () => {
+    const html = renderPage(
+      { ...spec, ctaHref: "javascript:window.__xss_href_proof=99;//" },
+      tokens,
+    );
+    expect(html).toContain(`href="${REJECTED_HREF}"`);
+    expect(html).not.toContain("__xss_href_proof");
+    expect(html).not.toContain("javascript:");
+  });
+
+  it("renderPage still renders a normal https CTA with UTM parameters intact", () => {
+    const html = renderPage(spec, tokens);
+    expect(html).toContain('href="https://base44.com/?utm_source=landing_page');
+    expect(html).toContain("utm_content=cc-100");
   });
 });
