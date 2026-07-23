@@ -54,6 +54,78 @@ describe("renderPage", () => {
   });
 });
 
+describe("renderPage script-context injection", () => {
+  // Demonstrated exploit: JSON.stringify() escapes JS string syntax but not
+  // "</script" -- the HTML tokenizer terminates a <script> element on that
+  // raw byte sequence regardless of JS-string escaping, so this payload used
+  // to let arbitrary injected markup execute as a second/third script.
+  const breakout = "</script><script>window.__xss_proof=1+1</script><script>";
+
+  function countScriptTags(html: string): number {
+    return (html.match(/<script[\s>]/gi) ?? []).length;
+  }
+
+  // The legitimate closing `</script>` tag at the end of the real inline
+  // script also matches the raw "</script" byte sequence, so the safety
+  // property under test is "exactly one occurrence -- the real closing tag
+  // -- not zero", not a bare `.not.toContain`.
+  function countScriptCloseSequences(html: string): number {
+    return (html.match(/<\/script/gi) ?? []).length;
+  }
+
+  it("cardId: breakout payload cannot terminate the inline script early", () => {
+    const html = renderPage({ ...spec, cardId: breakout }, tokens);
+    // Exactly one "</script" sequence in the whole document -- the real
+    // closing tag of the one legitimate inline script -- proves the payload
+    // did not inject a second closing/opening pair.
+    expect(countScriptCloseSequences(html)).toBe(1);
+    expect(countScriptTags(html)).toBe(1);
+    // The payload still lands somewhere visible (the data attribute), just
+    // HTML-escaped rather than raw.
+    expect(html).toContain('data-card-id="&lt;/script&gt;');
+  });
+
+  it("cardId: the inline script reads the id from the DOM, not from re-embedded data", () => {
+    const html = renderPage({ ...spec, cardId: breakout }, tokens);
+    expect(html).toContain("cta.dataset.cardId");
+    expect(html).not.toContain(breakout);
+  });
+
+  it("audienceId: breakout payload in the meta tag is escaped, not raw", () => {
+    const html = renderPage({ ...spec, audienceId: breakout }, tokens);
+    expect(countScriptCloseSequences(html)).toBe(1);
+    expect(html).toContain('name="x-audience-id" content="&lt;/script&gt;');
+    expect(countScriptTags(html)).toBe(1);
+  });
+
+  it("campaignId: breakout payload in the meta tag and CTA URL is escaped, not raw", () => {
+    const html = renderPage({ ...spec, campaignId: breakout }, tokens);
+    expect(countScriptCloseSequences(html)).toBe(1);
+    expect(html).toContain('name="x-campaign-id" content="&lt;/script&gt;');
+    expect(countScriptTags(html)).toBe(1);
+  });
+
+  it("subhead, body, ctaLabel: breakout payload cannot reach script context", () => {
+    for (const field of ["subhead", "body", "ctaLabel"] as const) {
+      const html = renderPage({ ...spec, [field]: breakout }, tokens);
+      expect(countScriptCloseSequences(html), `field: ${field}`).toBe(1);
+      expect(countScriptTags(html), `field: ${field}`).toBe(1);
+    }
+  });
+
+  it("slug: never reaches the rendered output, so a breakout payload is inert", () => {
+    const html = renderPage({ ...spec, slug: breakout }, tokens);
+    expect(countScriptCloseSequences(html)).toBe(1);
+    expect(countScriptTags(html)).toBe(1);
+  });
+
+  it("baseline: a non-malicious cardId still round-trips through the DOM read", () => {
+    const html = renderPage(spec, tokens);
+    expect(html).toContain('data-card-id="cc-100"');
+    expect(countScriptTags(html)).toBe(1);
+  });
+});
+
 describe("buildTrackedUrl", () => {
   it("carries surface, medium, campaign and card id", () => {
     const url = buildTrackedUrl("https://base44.com", spec);
@@ -64,5 +136,20 @@ describe("buildTrackedUrl", () => {
 
   it("preserves an existing query string", () => {
     expect(buildTrackedUrl("https://base44.com/?ref=x", spec)).toContain("ref=x");
+  });
+
+  it("degrades instead of throwing on a malformed/non-absolute ctaHref", () => {
+    expect(() => buildTrackedUrl("not a url", spec)).not.toThrow();
+    const result = buildTrackedUrl("not a url", spec);
+    expect(result).toContain("not a url");
+    expect(result).toContain("utm_source=landing_page");
+    expect(result).toContain("utm_campaign=base1-launch");
+    expect(result).toContain("utm_content=cc-100");
+  });
+
+  it("degrade path appends with & when the malformed base already has a query string", () => {
+    const result = buildTrackedUrl("not a url?ref=x", spec);
+    expect(result).toContain("ref=x");
+    expect(result).toContain("&utm_source=landing_page");
   });
 });

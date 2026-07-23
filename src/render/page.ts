@@ -11,6 +11,9 @@ export const MARKER_TEXT =
 
 export interface PageSpec {
   readonly cardId: string;
+  // Intentionally unreferenced in renderPage's output: the slug is consumed
+  // by the caller/router (Task 16) to choose the artifact's URL path, not by
+  // the page body itself. Not a bug -- see task-12's brief.
   readonly slug: string;
   readonly headline: string;
   readonly subhead: string;
@@ -34,14 +37,32 @@ function esc(value: string): string {
 /**
  * The card id (and campaign) ride every outbound link, so attribution is a
  * property of the artifact itself rather than something bolted on later.
+ *
+ * `new URL(base)` throws on a malformed/non-absolute `ctaHref` -- and a
+ * malformed href is a data problem the renderer should degrade around, not
+ * something that should take down an entire page render. When parsing
+ * fails, the tracking params are appended to the raw string by hand instead
+ * of via `URLSearchParams`, so the caller still gets a link (with tracking
+ * attached) rather than an uncaught exception.
  */
 export function buildTrackedUrl(base: string, spec: PageSpec): string {
-  const url = new URL(base);
-  url.searchParams.set("utm_source", "landing_page");
-  url.searchParams.set("utm_medium", "owned");
-  url.searchParams.set("utm_campaign", spec.campaignId);
-  url.searchParams.set("utm_content", spec.cardId);
-  return url.toString();
+  const params: ReadonlyArray<readonly [string, string]> = [
+    ["utm_source", "landing_page"],
+    ["utm_medium", "owned"],
+    ["utm_campaign", spec.campaignId],
+    ["utm_content", spec.cardId],
+  ];
+  try {
+    const url = new URL(base);
+    for (const [key, value] of params) url.searchParams.set(key, value);
+    return url.toString();
+  } catch {
+    const separator = base.includes("?") ? "&" : "?";
+    const query = params
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      .join("&");
+    return `${base}${separator}${query}`;
+  }
 }
 
 /**
@@ -82,7 +103,6 @@ function buildStyleSheet(tokens: DesignTokens): string {
 /** Turns an approved PageSpec plus design tokens into a self-contained landing page document. */
 export function renderPage(spec: PageSpec, tokens: DesignTokens): string {
   const cta = buildTrackedUrl(spec.ctaHref, spec);
-  const cardId = JSON.stringify(spec.cardId);
 
   return `<!doctype html>
 <html lang="en">
@@ -107,13 +127,27 @@ export function renderPage(spec: PageSpec, tokens: DesignTokens): string {
   <footer>${esc(MARKER_TEXT)}</footer>
 </main>
 <script>
+  // The card id is never re-embedded into this script: it is read back from
+  // the already-escaped data-card-id attribute on the CTA element instead.
+  // Interpolating spec.cardId directly here (even via JSON.stringify) would
+  // let a value containing the script element's closing tag terminate this
+  // element early and let attacker-controlled markup after it execute as a
+  // new script -- JSON.stringify escapes JS string syntax, not HTML tag
+  // boundaries. (Deliberately not spelling that closing tag out literally in
+  // this comment: the HTML tokenizer ends a script element on that byte
+  // sequence even inside a JS comment, so writing it here would reproduce
+  // the exact bug this code exists to close.) Reading the id out of the DOM
+  // instead removes the injection surface entirely rather than trying to
+  // out-escape the HTML tokenizer.
+  var cta = document.querySelector(".cta");
+  var cardId = cta.dataset.cardId;
   fetch("/api/visit", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ card_id: ${cardId}, kind: "view" }),
+    body: JSON.stringify({ card_id: cardId, kind: "view" }),
   }).catch(function () {});
-  document.querySelector(".cta").addEventListener("click", function () {
+  cta.addEventListener("click", function () {
     navigator.sendBeacon("/api/visit", JSON.stringify({
-      card_id: ${cardId}, kind: "click",
+      card_id: cardId, kind: "click",
     }));
   });
 </script>
