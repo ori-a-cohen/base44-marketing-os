@@ -33,3 +33,6 @@ assets/fonts/
 
 # SDD scratch (progress ledger)
 .superpowers/
+
+# Playwright MCP scratch output
+.playwright-mcp/
