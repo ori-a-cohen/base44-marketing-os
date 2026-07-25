@@ -24,7 +24,15 @@ describe("cold clone acceptance", () => {
         BOARD_INGEST_TOKEN: "",
       };
 
-      const out = execFileSync("bash", ["scripts/demo.sh"], { encoding: "utf8", env });
+      // A hard timeout so a hung demo fails the test cleanly rather than
+      // blocking the whole vitest process forever -- execFileSync is
+      // synchronous, so vitest's own test timeout cannot interrupt it.
+      const out = execFileSync("bash", ["scripts/demo.sh"], {
+        encoding: "utf8",
+        env,
+        timeout: 150_000,
+        killSignal: "SIGKILL",
+      });
 
       // The card exists and carries both an artifact and a shipped timestamp.
       const cards = readFileSync(env.CARDS_PATH, "utf8").trim().split("\n").map((l) => JSON.parse(l));

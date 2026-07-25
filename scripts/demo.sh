@@ -119,7 +119,13 @@ echo "6/7  measuring"
 npm run --silent measure
 
 echo "7/7  serving the board and proving it answers"
-npx tsx src/board/server.ts &
+# Run the server as a direct node process (not `npx tsx`, whose child would
+# orphan) so SERVER_PID is the real listener we can kill, and redirect its
+# stdio to a log so it never holds the stdout pipe a parent execFileSync (the
+# cold-clone acceptance test) captures -- an orphan holding that pipe hangs the
+# parent forever, which is invisible on macOS but deadlocks Linux CI.
+mkdir -p "${ROOT}/build"
+node --import tsx src/board/server.ts >"${ROOT}/build/board-server.log" 2>&1 &
 SERVER_PID=$!
 
 # Poll the port rather than sleep-and-hope: bounded (10s) wait for the server

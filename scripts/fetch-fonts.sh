@@ -48,7 +48,9 @@ fetch_one() {
   tmp_path="$(mktemp "$FONTS_DIR/.${dest_name}.XXXXXX.tmp")"
 
   echo "fetch-fonts: downloading $dest_name from $BASE_URL/$remote_path"
-  if curl -fsSL "$BASE_URL/$remote_path" -o "$tmp_path" && [ -s "$tmp_path" ]; then
+  # --connect-timeout/--max-time so a stalled network fails fast instead of
+  # hanging the demo (and any parent that runs it, e.g. the acceptance test).
+  if curl -fsSL --connect-timeout 10 --max-time 60 "$BASE_URL/$remote_path" -o "$tmp_path" && [ -s "$tmp_path" ]; then
     mv "$tmp_path" "$dest_path"
     echo "fetch-fonts: saved $dest_name ($(wc -c < "$dest_path" | tr -d ' ') bytes)"
     return 0
