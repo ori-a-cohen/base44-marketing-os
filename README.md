@@ -1,41 +1,94 @@
 # Roundtrip
 
-A fork of Base44's marketing-engineering starter that closes the loop the starter leaves open:
-approved copy becomes a real landing page and a token-derived social card, and every shipped piece
-comes back with a measured result attached to the rules that approved it. The headline number is
-deliberately unflattering — **loop-closure rate**, reported as "N of M measured" — and it starts at
-zero because the original schema had no field for what happened after publish.
+**A marketing system that grades itself on what it can prove.** Roundtrip forks Base44's
+marketing-engineering starter and closes the loop the starter leaves open: approved copy becomes a
+real landing page and a token-derived social card, every shipped piece comes back with a *measured*
+result, and that result is attached to the exact brand rules that approved it.
 
-## 90-second quickstart
+The headline number is deliberately unflattering — **loop-closure rate**, reported as `N of M
+measured` — and it starts at zero, because the original schema had no field for what happened after
+publish. Producing more content without measuring it pushes the number *down*, never up.
+
+**Live board:** https://roundtrip-board-ecceb49b.base44.app — hosted on Base44 as a real Base44 app,
+showing the same honest number this repo computes locally.
+
+> Runs cold with **zero API keys**. The whole loop closes against a local card store and a local
+> visit logger — enforced by an acceptance test, not just claimed.
+
+---
+
+## What you can do with it
+
+- **Launch a campaign end to end** — brief → on-brand copy → real HTML landing page + social card →
+  automated verification → a scored quality gate → a tracked card on the board.
+- **Enforce the brand at the filesystem** — off-brand words or off-token colours never reach disk.
+  Two PreToolUse hooks block the write and hand the model back the exact rule it broke.
+- **Measure what shipped** — pull outcomes through per-surface adapters and watch the loop-closure
+  rate move, with seeded/immature/stale data structurally excluded from the numerator.
+- **See accountability, not vanity** — a board with per-surface scores, cohorts, and a
+  rule-accountability view that names which brand rules the outcome data does and doesn't support.
+- **Extend honestly** — unconfigured ad surfaces (Meta, LinkedIn) are registered as real, loudly
+  labelled stubs, not silent gaps; a hosted Base44 storage driver slots in behind the same contract
+  as the local one.
+
+---
+
+## Get started
+
+Requires **Node 20+**.
 
 ```bash
+git clone https://github.com/ori-a-cohen/base44-marketing-os.git
+cd base44-marketing-os
 npm install
-npx playwright install chromium
-npm run demo
-npm run board
+npx playwright install chromium   # for page verification
+npm run demo                      # the 90-second, zero-key proof
+npm run board                     # browse the result at http://127.0.0.1:4174
 ```
 
-`npm run demo` (equivalently `bash scripts/demo.sh`) fetches Geist, seeds one approved card, builds
+`npm run demo` (aka `bash scripts/demo.sh`) fetches the Geist font, seeds one approved card, builds
 its landing page and social card, verifies the rendered page in a real headless browser, records a
-genuine local page visit, serves the board, and confirms it answers — then shuts itself down. `npm
-run board` then serves the board again at `http://127.0.0.1:4174` so you can browse what was built.
+genuine local page visit, serves the board and confirms it answers — then shuts itself down. It
+needs **no credentials**: `tests/acceptance/cold-clone.test.ts` runs the same script from a clean
+state and asserts it completes with every optional key scrubbed.
 
-**No API keys are needed for this run.** The cold clone uses a local JSONL card store and a local
-visit logger; nothing in the demo path talks to a paid API. This is enforced, not just documented —
-`tests/acceptance/cold-clone.test.ts` runs the same script from a clean state and asserts it
-completes with zero credentials configured.
+Then `npm run board` serves the board at `http://127.0.0.1:4174` so you can browse the card, its
+generated page at `/c/<cardId>/<slug>`, the loop-closure number, and the per-surface breakdown.
 
-## The four layers, and what Roundtrip added
+---
 
-| Layer | Starter had | Roundtrip adds |
-|---|---|---|
-| **Brain** | `writer.md`, `brand-guardian.md`, `skills/marketing-router/` — a writer that reads the canon first, a guardian that gates every draft | `agents/designer.md` (copy → page/card spec, tokens only), `agents/design-guardian.md` (scores the rendered artifact), `agents/analyst.md` (outcomes → surface scores; never writes content), `skills/launch-campaign/`, `skills/measure/`, `skills/rule-audit/`, and a numbered-per-rule guardian verdict (`brand/rules.md`) instead of one blurry score |
-| **Visibility** | `activity-log.md` — one line per run | The live board (`src/board/`, `npm run board`) — cards, states, the loop-closure number, per-surface scores, and a rule-accountability view, all computed from the same JSONL log |
-| **Movement** | `hooks/log-run.sh` — history writes itself | `hooks/brand-lint.sh` and `hooks/design-lint.sh` (PreToolUse — off-brand or off-token writes exit 2 and never reach disk) and `hooks/reconcile.sh` (Stop — every guardian verdict gets a card, POSTed to the board when one is configured) |
-| **Memory** | `memory/MEMORY.md`, `memory/patterns.md` | Unchanged in shape — cards now carry the rule ids that approved them, so `skills/rule-audit/` can name which rules outcome data does and doesn't support |
+## How you actually run it
 
-Everything under `src/`, `tests/`, and `scripts/` is new build output for this system; `CONTRIBUTING.md`
-is its developer contract (`CLAUDE.md` remains the *operator's* contract — the two never mix).
+Roundtrip is operated through Claude Code — the `agents/` and `skills/` are the interface, the
+`src/` code is the enforcement underneath them. A real campaign flows through one skill:
+
+**`skills/launch-campaign/` — the orchestrator**
+
+```
+brief  →  writer  →  brand gate  →  build artifacts  →  verify  →  design gate  →  card + board  →  memory
+```
+
+1. **Brief.** Confirm channel, topic, audience, the one message, and the CTA. (`brand/audiences.md`
+   defines the four segments; `data/source-base1.md` is the only factual ground — no invented claims.)
+2. **Write** as `agents/writer.md`, which re-reads the canon before producing a word.
+3. **Brand gate.** `agents/brand-guardian.md` scores the copy against every numbered rule in
+   `brand/rules.md`; below the bar, it revises once, then escalates. The `brand-lint` hook has already
+   made off-brand copy physically un-writable.
+4. **Build.** `npx tsx src/render/cli-build.ts --card <cardId>` renders the landing page and social
+   card from `brand/DESIGN.md` tokens only — never a remembered hex.
+5. **Verify for free.** `npm run verify:page` runs the page through headless Chromium *before* any
+   human or model looks at it (structure, tracking, mobile, the not-official marker).
+6. **Design gate.** `agents/design-guardian.md` scores the rendered artifact against the numbered
+   `DESIGN.md` rules. The `design-lint` hook has already blocked any off-token colour.
+7. **Card + board.** Every guardian verdict becomes a card via the `reconcile` Stop hook — logging is
+   structural, not something a run can skip.
+8. **Measure later.** `skills/measure/` (`npm run measure`) pulls real outcomes and advances the
+   card's state; `skills/rule-audit/` turns the accumulated outcomes into the accountability view.
+
+You never hand-write a card or a number — the code assigns provenance and the metric, so the board
+number is one nobody typed.
+
+---
 
 ## The metric, in plain language
 
@@ -43,115 +96,124 @@ is its developer contract (`CLAUDE.md` remains the *operator's* contract — the
 
 Four rules keep it honest, enforced in code (`src/metric/loop-closure.ts`), not by convention:
 
-1. **Only real results count.** Sample/seeded data shows on the board, clearly marked, and can never
+1. **Only real results count.** Seeded/sample data shows on the board, clearly marked, and can never
    enter the numerator — `COUNTING_PROVENANCES` excludes it structurally, not by review.
-2. **Zero is an answer. Unknown isn't.** A page that got no visitors is measured — the outcome exists
-   and its value is `0`. A page nobody checked has no outcome row at all, and does not count.
-3. **New work gets a grace period.** A card doesn't enter the denominator until its surface's own
-   maturity window has passed (15 minutes for a landing page, 1 hour for an answer-engine check, 1 day
-   for an ad surface) — see `src/metric/surfaces.ts`.
-4. **Results go stale.** Past each surface's TTL, a stale measurement drops back out of the numerator
-   (it stays in the denominator) — walk away and the number drifts back down.
+2. **Zero is an answer; unknown isn't.** A page that got no visitors is *measured* — the outcome
+   exists and its value is `0`. A page nobody checked has no outcome row, and does not count.
+3. **New work gets a grace period.** A card enters the denominator only after its surface's maturity
+   window passes (15 min for a landing page, 1 hr for an answer-engine check, 1 day for an ad surface).
+4. **Results go stale.** Past a surface's TTL, a stale measurement drops out of the numerator (it
+   stays in the denominator) — walk away and the number drifts back down.
 
-Always reported as **"3 of 4 measured"**, never as a percentage — at small N a percentage lies in
-both directions. Producing more content without measuring it pushes the number *down*, never up.
+Always reported as **"3 of 4 measured"**, never a percentage — at small N a percentage lies in both
+directions. The metric was hardened against every way to inflate it: duplicate/regenerated cards are
+deduped to their latest version, pre-ship and post-TTL measurements are rejected, and per-surface
+`closed` counts sum *exactly* to the headline.
+
+---
+
+## What's enforced vs. what's judged
+
+Roundtrip is careful about the line between what a deterministic check can prove and what needs
+human/model judgement — and it labels the difference instead of pretending.
+
+| Concern | Enforced in code (blocks the write / fails the run) | Left to the guardian agent's judgement |
+|---|---|---|
+| Vocabulary | Banned words (`brand-lint`) — off-brand copy exits 2, never hits disk | Tone, rhetorical AI-tells (flagged as advisory `warn`, not blocked) |
+| Colour | Any non-token hex/rgb/hsl, gradients, non-`none` shadows (`design-lint`) | Layout, hierarchy, whether it *looks* right |
+| Page | One `h1`, one tracked CTA, the marker, no mobile overflow (`verify:page`) | Colour contrast, whether the intended font loaded (stated gaps, not silent) |
+| Facts | Every claim must trace to `data/source-base1.md` | — |
+
+Fonts are the model case: `brand/DESIGN.md` names **Dazzed** (display) and **Geist** (body). Geist is
+SIL Open Font License, so `scripts/fetch-fonts.sh` downloads it into gitignored `assets/fonts/`.
+Dazzed's licence forbids redistribution, so **it is never fetched or committed** — the renderer
+resolves `Dazzed → Geist → system`, reports which face it used (`attributes.display_font`), and a
+fallback is a labelled, visible seam on the board, never a silent substitution.
+
+---
+
+## The four layers
+
+| Layer | Starter had | Roundtrip adds |
+|---|---|---|
+| **Brain** | `writer.md`, `brand-guardian.md`, a router | `designer`, `design-guardian`, `analyst` agents; `launch-campaign` / `measure` / `rule-audit` skills; numbered-per-rule verdicts |
+| **Visibility** | `activity-log.md` — one line per run | The live board (`src/board/`) — cards, states, the loop-closure number, per-surface scores, rule accountability |
+| **Movement** | `hooks/log-run.sh` | `brand-lint` + `design-lint` (PreToolUse, block off-canon writes) and `reconcile` (Stop, every verdict gets a card) |
+| **Memory** | `memory/*.md` | Cards carry the rule ids that approved them, so `rule-audit` can name what outcome data supports |
+
+`src/`, `tests/`, `scripts/` are the engine; `CONTRIBUTING.md` is its developer contract, `CLAUDE.md`
+is the operator's — the two never mix.
+
+---
 
 ## Outcome surfaces
 
-| Surface | Status | Primary metric | Notes |
+| Surface | Status | Metric | Notes |
 |---|---|---|---|
-| Landing page | live | visits | Local visit logger — this is what the cold-run demo measures |
+| Landing page | live | visits | Local visit logger — what the cold-run demo measures |
 | Answer engines | live | canon match | Our own check, no external key |
-| Meta ads | **available, not configured** | cost per signup | Registered as a real stub (`src/adapters/stubs.ts`) — same `Outcome` contract as a live adapter, fails loudly naming the missing env vars (`META_AD_ACCOUNT_ID`, `META_ACCESS_TOKEN`), contributes to neither side of the ratio. See `data/adapters-meta.md`. |
-| LinkedIn ads | **available, not configured** | cost per signup | Same shape — CSV import path documented, no live credentials wired. Fails loudly naming what's missing. See `data/adapters-linkedin.md`. |
+| Meta ads | available, not configured | cost / signup | Real registered stub — fails loudly naming the missing env vars, counts toward neither side (`data/adapters-meta.md`) |
+| LinkedIn ads | available, not configured | cost / signup | Same shape; CSV import path documented (`data/adapters-linkedin.md`) |
 
-A stub is not a placeholder comment: it is a real, registered surface that a real `npm run measure`
-run will report on honestly ("not configured, here's what you need") the moment someone points it at
-a real account. Until then it cannot flatter or damage the loop-closure number, because it never
-produces a countable outcome.
+A stub is a real, registered surface — the moment you point it at a live account, `npm run measure`
+reports on it honestly. Until then it can neither flatter nor damage the number.
 
-## Other commands
+---
+
+## Base44 hosting
+
+The board runs on Base44 as a genuine Base44 app — the dogfooding is structural, not cosmetic.
+
+- **Public board:** https://roundtrip-board-ecceb49b.base44.app
+- **Driver-based storage.** `src/cards/card-store.ts` defines a `CardStore` interface; `JsonlCardStore`
+  is the default cold-run path (zero credentials), and `src/cards/base44-card-store.ts` is a
+  `Base44CardStore` over the Base44 SDK, selected by `ROUNDTRIP_STORE=base44`. Both satisfy the same
+  reusable contract suite, which skips cleanly without `BASE44_APP_ID` — a cold clone never touches
+  Base44.
+- **Hosted pieces** (in a separate project, so this fork stays clean): `Card` / `Visit` entities
+  mirroring the schema; a client board plus a `board` serverless function running the *byte-identical*
+  vendored compute layer; a token-gated `cards` ingest (closed by default) and a `visit` function that
+  cannot set provenance. The honesty discipline is identical whether the number is computed locally or
+  in the cloud.
+
+`ROUNDTRIP_STORE` defaults to `jsonl`, so the cold-run guarantee is untouched.
+
+---
+
+## Command reference
 
 | Command | What it does |
 |---|---|
-| `npm test` | Full suite (372 tests as of this writing) |
-| `npm run typecheck` | `tsc --noEmit`, no build step |
-| `npm run lint:brand` | Runs the brand linter over stdin (what `hooks/brand-lint.sh` calls) |
-| `npm run lint:design` | Runs the design-token linter over stdin (what `hooks/design-lint.sh` calls) |
-| `npm run measure` | Pulls outcomes through every adapter and attaches them to matching cards |
+| `npm run demo` | The full zero-key loop (fetch fonts → build → verify → measure → serve → stop) |
+| `npm run board` | Serve the board at `http://127.0.0.1:4174` |
+| `npm test` | Full suite (382 passing, 7 live-Base44 tests skipped without `BASE44_APP_ID`) |
+| `npm run typecheck` | `tsc --noEmit` (no build step) |
+| `npm run measure` | Pull outcomes through every adapter and attach them to cards |
+| `npm run measure -- --csv <path>` | Import a gated surface's results from CSV (labelled `manual`) |
 | `npm run verify:page -- <path-to-html>` | Playwright checks against one rendered page |
-| `npx tsx src/render/cli-build.ts --card <cardId>` | Builds the landing page + social card for an existing card by id (there is no generic `npm run build` — this is the actual entrypoint, see `src/render/cli-build.ts`) |
+| `npm run lint:brand` / `npm run lint:design` | The linters the hooks run, over stdin |
+| `npx tsx src/render/cli-build.ts --card <cardId>` | Build the page + social card for an existing card |
 
-There is no `npm run build`. If you see one referenced elsewhere, it's wrong — the command above is
-the real one.
+There is **no** `npm run build` — the `cli-build` command above is the real entrypoint.
 
-## Design tokens actually enforced
+---
 
-`brand/DESIGN.md`'s front matter defines `colors` (background, ink, primary, muted), `typography`
-(display, body, fallback), `spacing` (sm, md, lg), and two components (`cta-button`, `social-card`,
-`caption`) that reference those base tokens — `cta-button.rounded` is `8px`, not a standalone
-top-level design token. `src/lint/tokens.ts` — the code `hooks/design-lint.sh` runs on every write to
-a content or generated-page path — checks colour only: any hex/rgb/hsl value not in the canon's
-`colors` list is blocked, gradients are blocked, and non-`none` `box-shadow` is blocked. It does not
-check radius, spacing, or typography values; those are enforced by the design-guardian agent scoring
-a screenshot, not by this deterministic linter.
+## Project structure
 
-## What page verification actually checks
+```
+agents/     writer, brand-guardian, designer, design-guardian, analyst (operator interface)
+skills/     launch-campaign, measure, rule-audit, marketing-router
+brand/      voice-guide.md, rules.md, DESIGN.md, audiences.md   (the canon — source of truth)
+data/       source-base1.md (the only factual ground), adapter docs
+hooks/      brand-lint, design-lint, reconcile (filesystem enforcement)
+src/        cards · metric · lint · render · verify · adapters · board  (the engine)
+tests/      unit, integration, and the cold-clone acceptance test
+scripts/    demo.sh, fetch-fonts.sh
+```
 
-`src/verify/page.ts` (`npm run verify:page`) runs a real rendered page through headless Chromium and
-checks: exactly one `h1`; exactly one CTA (`a.cta`), and if present, that its `href` carries both
-`utm_content` and `utm_campaign` and was not rejected as a dead link; the `x-card-id` meta tag is
-present; the not-official marker text is present; and there is no horizontal overflow at a 375px
-mobile viewport. **It does not check colour contrast and it does not check whether the intended font
-actually loaded** — both are named as deliberate, stated gaps in the code's own comments
-(`src/verify/page.ts`), not silent omissions. Contrast and font-loading are judgement calls left to
-the design-guardian agent scoring a screenshot, and to the honest font-fallback labelling described
-below.
-
-## Fonts: Geist ships, Dazzed doesn't
-
-`brand/DESIGN.md` names Dazzed as the display face and Geist as the body face. Geist is SIL Open Font
-License — redistributable — so `scripts/fetch-fonts.sh` downloads it into the gitignored
-`assets/fonts/` directory (called automatically by `npm run demo`; run it yourself any time). Dazzed's
-license permits use but not redistribution of the font file, so **it is never fetched or committed**.
-The renderer resolves the display face `Dazzed-*` → `Geist-*` → system, in that order, and reports
-which one it actually used (`fontUsed.display`); `src/render/cli-build.ts` writes that value onto the
-card as `attributes.display_font`, and a fallback is a labelled, visible seam on the board — never a
-silent substitution. See `assets/fonts/README.md` and the "Known glyph exceptions" note in
-`brand/DESIGN.md`.
-
-## The 90-second demo, honestly described
-
-`scripts/demo.sh` backdates the seeded card's `shipped_at` by 20 minutes before verifying it. This is
-a demo-clock convenience, not a claim about elapsed time: `landing_page`'s maturity window
-(`src/metric/surfaces.ts`) is 15 minutes, and a 90-second script cannot wait that out in real time.
-**Only the ship timestamp is moved** — the measured outcome that follows is a genuine real local page
-visit, recorded by the same visit logger a real run would use. If you run the demo and then click
-through to the card's own generated page yourself before running `npm run measure`, you'll see your
-own click count toward the same real outcome.
-
-## Base44 hosting: live
-
-The board is hosted on Base44 as a real Base44 app — the dogfooding is structural, not cosmetic.
-
-- **Public board:** https://roundtrip-board-ecceb49b.base44.app — the same honest loop-closure
-  number this repo computes locally, served from hosted data.
-- **Storage is driver-based.** `src/cards/card-store.ts` defines a `CardStore` interface with a
-  default `JsonlCardStore` (the cold-run path — zero credentials). Beside it,
-  `src/cards/base44-card-store.ts` is a `Base44CardStore` over the Base44 SDK, selected by
-  `ROUNDTRIP_STORE=base44` (needs `BASE44_APP_ID`). Both satisfy the same reusable contract suite
-  (`tests/cards/card-store-contract.test.ts`), which skips cleanly when `BASE44_APP_ID` is absent, so
-  a cold clone never touches Base44 and still closes the loop.
-- **Hosted pieces** (in a separate project outside this repo, so the fork stays clean): `Card` and
-  `Visit` entities mirroring `src/cards/schema.ts`; a client board plus a `board` serverless function
-  that runs the *same* vendored, byte-identical compute layer; a token-gated `cards` ingest function
-  (closed by default — no token, no writes) and a `visit` function that cannot set provenance. The
-  headline number obeys the identical honesty discipline whether computed locally or in the cloud.
-
-The cold-run guarantee is untouched: `ROUNDTRIP_STORE` defaults to `jsonl`, and `npm run demo` still
-closes the loop with zero API keys and no network.
+---
 
 ## Assignment deliverables
 
 `DECISION.md`, `LAUNCH-POST.md`, and `LOOM-SCRIPT.md` at the repo root are the take-home's three
-required artifacts, verified against the code as built rather than against the plan that predated it.
+required artifacts — each verified against the code as built, not the plan that predated it.
