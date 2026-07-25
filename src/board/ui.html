@@ -1,0 +1,277 @@
+<title>Roundtrip board</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /*
+    Direct token values from brand/DESIGN.md's front matter (not remembered,
+    not custom properties -- see src/render/page.ts's comment on why direct
+    declarations are what the design-lint detector can actually see; this
+    file is out of that hook's scope, per CLAUDE.md, but stays token-honest
+    anyway since it represents the brand).
+    background #F9F7F4, ink #1E1E24, primary #FF6A00, muted #6D6A67
+    spacing sm 8px, md 16px, lg 32px
+  */
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:#F9F7F4; color:#1E1E24;
+    font-family:system-ui,sans-serif; line-height:1.5; padding:32px 16px;
+  }
+  main{max-width:64rem;margin:0 auto}
+  h1{font-size:1.75rem;margin:0 0 8px}
+  h2{font-size:1.15rem;margin:32px 0 8px;color:#1E1E24}
+  .lede{color:#6D6A67;margin:0 0 32px}
+  .metric-row{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  .metric-value{font-size:2rem;font-weight:700;color:#1E1E24}
+  .metric-inflight{color:#6D6A67;font-size:0.95rem}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid #6D6A67}
+  th{color:#6D6A67;font-weight:600;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.03em}
+  .muted{color:#6D6A67}
+  .pill{display:inline-block;border:1px solid #6D6A67;border-radius:8px;padding:2px 8px;font-size:0.8rem;color:#6D6A67}
+  .pill.taste-only{border-color:#FF6A00;color:#FF6A00}
+  .card-row{border:1px solid #6D6A67;border-radius:8px;padding:16px;margin-bottom:16px}
+  .card-row h3{margin:0 0 8px;font-size:1rem}
+  .verdict{font-size:0.9rem;margin:4px 0}
+  .verdict.fail{color:#FF6A00}
+  .cta-link{color:#FF6A00;text-decoration:none;font-weight:600}
+  .cta-link:hover{text-decoration:underline}
+  .empty{color:#6D6A67;font-style:italic}
+  .font-note{font-size:0.85rem;color:#6D6A67;border-left:3px solid #FF6A00;padding-left:8px;margin:4px 0}
+  section{margin-bottom:32px}
+</style>
+<main>
+  <h1>Roundtrip board</h1>
+  <p class="lede">Brain &middot; Visibility &middot; Movement &middot; Memory -- one number, honestly measured.</p>
+
+  <section id="metric-section">
+    <div class="metric-row">
+      <span data-testid="metric" class="metric-value" id="metric-value">Loading…</span>
+      <span class="metric-inflight" id="metric-inflight"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Per surface</h2>
+    <table data-testid="per-surface">
+      <thead><tr><th>Surface</th><th>Closed</th><th>Eligible</th><th>Score</th></tr></thead>
+      <tbody id="per-surface-body"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Approval queue</h2>
+    <div id="approval-queue" data-testid="approval-queue"></div>
+  </section>
+
+  <section>
+    <h2>Rule accountability</h2>
+    <p class="muted">Correlation, not causation: a rule is "supported" only once enough measured cards actually carried a verdict for it.</p>
+    <table data-testid="rule-accountability">
+      <thead><tr><th>Rule</th><th>Status</th><th>Measured cards</th></tr></thead>
+      <tbody id="rule-accountability-body"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Cohorts &mdash; by audience</h2>
+    <table data-testid="cohort-audience">
+      <thead><tr><th>Audience</th><th>N</th><th>Mean score</th></tr></thead>
+      <tbody id="cohort-audience-body"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Cohorts &mdash; by campaign</h2>
+    <table data-testid="cohort-campaign">
+      <thead><tr><th>Campaign</th><th>N</th><th>Mean score</th></tr></thead>
+      <tbody id="cohort-campaign-body"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Stub surfaces</h2>
+    <ul id="stub-surfaces" data-testid="stub-surfaces"></ul>
+  </section>
+
+  <section id="font-fallback-section" data-testid="font-fallback" style="display:none">
+    <h2>Font fallback notices</h2>
+    <div id="font-fallback-body"></div>
+  </section>
+</main>
+<script>
+  // Known surface labels, mirroring src/metric/surfaces.ts's SURFACES table.
+  // This is a plain HTML/JS file with no build step, so the registry itself
+  // cannot be imported -- this is display-only duplication, never consulted
+  // for anything that affects the metric.
+  var SURFACE_LABELS = {
+    landing_page: "Landing page",
+    aeo_check: "Answer engines",
+    meta_ads: "Meta ads",
+    linkedin_ads: "LinkedIn ads",
+  };
+
+  function surfaceLabel(id) {
+    return SURFACE_LABELS[id] || id;
+  }
+
+  function esc(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function scoreText(score) {
+    return score === null || score === undefined ? "—" : String(score);
+  }
+
+  // The current (highest-version) row per logical card id -- mirrors
+  // dedupeToLatestVersion (src/metric/loop-closure.ts) so the UI never
+  // double-lists a regenerated card under its superseded version.
+  function currentCards(cards) {
+    var byId = new Map();
+    (cards || []).forEach(function (c) {
+      var existing = byId.get(c.id);
+      if (!existing || c.version >= existing.version) byId.set(c.id, c);
+    });
+    return Array.from(byId.values());
+  }
+
+  function renderMetric(view) {
+    document.getElementById("metric-value").textContent = view.metricLabel;
+    document.getElementById("metric-inflight").textContent =
+      view.metric.inFlight + (view.metric.inFlight === 1 ? " card in flight" : " cards in flight");
+  }
+
+  function renderPerSurface(view) {
+    var body = document.getElementById("per-surface-body");
+    if (view.perSurface.length === 0) {
+      body.innerHTML = '<tr><td colspan="4" class="empty">No surface has eligible work yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = view.perSurface
+      .map(function (row) {
+        return (
+          "<tr><td>" + esc(row.label) + "</td><td>" + row.closed + "</td><td>" + row.eligible +
+          "</td><td>" + scoreText(row.score) + "</td></tr>"
+        );
+      })
+      .join("");
+  }
+
+  function renderApprovalQueue(view) {
+    var container = document.getElementById("approval-queue");
+    var approved = currentCards(view.cards).filter(function (c) { return c.status === "approved"; });
+    if (approved.length === 0) {
+      container.innerHTML = '<p class="empty">Nothing awaiting approval.</p>';
+      return;
+    }
+    container.innerHTML = approved
+      .map(function (c) {
+        var verdicts = (c.verdicts || [])
+          .map(function (v) {
+            var cls = v.pass ? "verdict" : "verdict fail";
+            return '<div class="' + cls + '">Rule ' + v.rule + ": " + (v.pass ? "pass" : "fail") + " -- " + esc(v.note) + "</div>";
+          })
+          .join("");
+        var slug = c.artifacts && c.artifacts.page_slug;
+        var preview = slug
+          ? '<a class="cta-link" href="/c/' + encodeURIComponent(c.id) + "/" + encodeURIComponent(slug) + '">Preview</a>'
+          : '<span class="muted">no preview yet</span>';
+        var fontNote =
+          c.attributes && c.attributes.display_font === "Geist"
+            ? '<p class="font-note">display font: Geist (Dazzed is licensed and not redistributable — see assets/fonts/README.md)</p>'
+            : "";
+        return (
+          '<div class="card-row"><h3>' + esc(c.topic) + " (" + esc(c.id) + ")</h3>" +
+          verdicts + fontNote + preview + "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function renderRuleAccountability(view) {
+    var body = document.getElementById("rule-accountability-body");
+    body.innerHTML = view.ruleAccountability
+      .map(function (row) {
+        var pillClass = row.status === "taste-only" ? "pill taste-only" : "pill";
+        return (
+          "<tr><td>Rule " + row.rule + '</td><td><span class="' + pillClass + '">' + row.status +
+          "</span></td><td>" + row.measuredCards + "</td></tr>"
+        );
+      })
+      .join("");
+  }
+
+  function renderCohortTable(bodyId, rows, keyLabel) {
+    var body = document.getElementById(bodyId);
+    if (!rows || rows.length === 0) {
+      body.innerHTML = '<tr><td colspan="3" class="empty">No ' + keyLabel + ' data yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows
+      .map(function (row) {
+        var scoreCell = row.gated
+          ? '<span class="muted">not enough data yet — ' + row.n + " of 5</span>"
+          : scoreText(row.meanScore);
+        return "<tr><td>" + esc(row.key) + "</td><td>" + row.n + "</td><td>" + scoreCell + "</td></tr>";
+      })
+      .join("");
+  }
+
+  function renderStubSurfaces(view) {
+    var list = document.getElementById("stub-surfaces");
+    if (view.stubSurfaces.length === 0) {
+      list.innerHTML = '<li class="empty">No stub surfaces registered.</li>';
+      return;
+    }
+    list.innerHTML = view.stubSurfaces
+      .map(function (id) { return "<li>" + esc(surfaceLabel(id)) + " — available, not configured</li>"; })
+      .join("");
+  }
+
+  // Amendment A (task-13 carryover): a card whose display font fell back to
+  // Geist because Dazzed is licensed and not redistributable must be
+  // labelled on the board -- this is a required honesty seam, never left
+  // silent. Deduped to current versions so a superseded row cannot repeat.
+  function renderFontFallbacks(view) {
+    var section = document.getElementById("font-fallback-section");
+    var body = document.getElementById("font-fallback-body");
+    var affected = currentCards(view.cards).filter(function (c) {
+      return c.attributes && c.attributes.display_font === "Geist";
+    });
+    if (affected.length === 0) {
+      section.style.display = "none";
+      return;
+    }
+    section.style.display = "";
+    body.innerHTML = affected
+      .map(function (c) {
+        return (
+          '<p class="font-note">' + esc(c.id) + ": display font: Geist (Dazzed is licensed and not " +
+          "redistributable — see assets/fonts/README.md)</p>"
+        );
+      })
+      .join("");
+  }
+
+  function render(view) {
+    renderMetric(view);
+    renderPerSurface(view);
+    renderApprovalQueue(view);
+    renderRuleAccountability(view);
+    renderCohortTable("cohort-audience-body", view.cohorts.byAudience, "audience");
+    renderCohortTable("cohort-campaign-body", view.cohorts.byCampaign, "campaign");
+    renderStubSurfaces(view);
+    renderFontFallbacks(view);
+  }
+
+  fetch("/api/board")
+    .then(function (res) { return res.json(); })
+    .then(render)
+    .catch(function (err) {
+      document.getElementById("metric-value").textContent = "board unavailable";
+      console.error(err);
+    });
+</script>

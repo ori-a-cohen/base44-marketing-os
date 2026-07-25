@@ -2,15 +2,15 @@
 # Design tokens — structured layer, per the DESIGN.md spec (github.com/google-labs-code/design.md)
 # Agents read these values verbatim; the prose below explains how to apply them.
 # Replace every CHANGE_ME. Lint when done: npx @google/design.md lint brand/DESIGN.md
-# Starter values so the file lints clean — swap every one for YOUR brand
+# Values sourced from base44.com rendered CSS (2026-07-21) — traceable, not remembered.
 colors:
-  background: "#FAFAF8"   # your canvas — name it deliberately, don't default to white
-  ink: "#111111"          # primary text
-  primary: "#0055FF"      # THE accent. One vivid color, total. (swap me first)
-  muted: "#6B6B6B"        # secondary text / captions
+  background: "#F9F7F4"   # warm off-white canvas — Base44's site background, never plain white
+  ink: "#1E1E24"          # primary text — near-black with a faint cool cast
+  primary: "#FF6A00"      # THE accent: Base44 orange. One vivid color, total, kept scarce.
+  muted: "#6D6A67"        # secondary text / captions
 typography:
-  display: "CHANGE_ME    # display face — headlines only"
-  body: "CHANGE_ME       # body face — everything else"
+  display: "Dazzed"        # display face — headlines only
+  body: "Geist"            # body face — everything else
   fallback: "system-ui, sans-serif"
 spacing:
   sm: "8px"
@@ -51,7 +51,9 @@ One background, one ink, ONE accent, one muted. The accent earns attention by be
 Display face for headlines, body face for everything else — no exceptions, no "it looked better in italic." Verify fonts actually LOADED in rendered output: render the same text with and without the font and compare pixels; if they match, you silently fell back and the creative fails.
 
 **Known glyph exceptions** — real fonts have real defects. Record them here the first time one bites you, so it becomes a rule instead of a repeated surprise:
-- [example: "the display face renders `$` badly — currency symbols always use the body face"]
+- **Dazzed cannot ship with the repo.** It is free to use but not to redistribute, so a clone
+  renders display type in Geist until an operator drops the file into `assets/fonts/`. The renderer
+  reports which face it used and the board labels any fallback. Never let this one go silent.
 
 ## Layout
 
@@ -59,11 +61,11 @@ Flat, branded backgrounds — solid color fields from the tokens; never default 
 
 ## Elevation & Depth
 
-[Define yours: shadows allowed? how many levels? Flat systems: state "no elevation — hierarchy comes from scale and color" and delete ambiguity.]
+No elevation — hierarchy comes from scale, weight, and the scarce orange accent. No drop shadows, no floating panels. Starter policy; tighten it the first time a real creative needs depth.
 
 ## Shapes
 
-[Corner radius policy, e.g. "8px everywhere, pill-shape for CTAs only." One radius family; mixed radii read as unconsidered.]
+8px everywhere (matches the `cta-button` token). One radius family; mixed radii read as unconsidered. Starter policy — promote to a hard rule the first time an off-radius creative gets rejected.
 
 ## Components
 
