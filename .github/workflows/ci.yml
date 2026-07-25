@@ -1,0 +1,39 @@
+name: CI
+
+# Runs the full suite on every push and pull request. No secrets are used:
+# the cold-run guarantee means the whole loop (build, verify, measure, board,
+# and the cold-clone acceptance test) closes with zero API keys. The live
+# Base44 contract tests skip cleanly because BASE44_APP_ID is absent here --
+# exactly the behaviour a fresh clone gets.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        # Page verification (src/verify) drives a real headless browser.
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
