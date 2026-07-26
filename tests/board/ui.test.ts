@@ -59,6 +59,28 @@ describe("board UI: document shape", () => {
   });
 });
 
+describe("board UI: the one deployment seam", () => {
+  /**
+   * The same file is the board in both places: served by src/board/server.ts
+   * locally, and deployed to Base44 hosting by src/board/build-site.ts. The
+   * ONLY thing that differs between the two is where the BoardView comes
+   * from, so that difference is confined to a single declared value rather
+   * than a forked copy of the file. Two boards is how the last drift
+   * happened; one board with one seam is the fix.
+   */
+  it("declares its data source as a meta tag, defaulting to the local server", () => {
+    expect(ui).toMatch(/<meta name="board-endpoint" content="\/api\/board">/);
+  });
+
+  it("reads the endpoint from that tag rather than hardcoding a path in the fetch", () => {
+    expect(ui).toContain('meta[name="board-endpoint"]');
+    // Exactly one fetch of board data, and it goes through the declared
+    // endpoint -- a second hardcoded path would silently re-fork the file.
+    expect(ui.match(/fetch\(/g) ?? []).toHaveLength(1);
+    expect(ui).not.toMatch(/fetch\(\s*["']\/api\/board["']/);
+  });
+});
+
 describe("board UI: design canon", () => {
   const tokens = parseTokens(readFileSync(DESIGN_PATH, "utf8"));
 

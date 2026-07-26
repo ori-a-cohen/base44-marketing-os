@@ -3,6 +3,15 @@
 <title>Roundtrip board</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  The one thing that differs between where this board runs. Locally,
+  src/board/server.ts answers /api/board; on Base44 hosting the same payload
+  comes from the app's `board` function. src/board/build-site.ts rewrites
+  this single value at deploy time, so the two deployments share one file
+  instead of one forking into a second copy -- which is exactly how the
+  board and its hosted twin drifted apart before.
+-->
+<meta name="board-endpoint" content="/api/board">
 <style>
   /*
     Direct token values from brand/DESIGN.md's front matter (not remembered,
@@ -658,7 +667,13 @@
     renderFontFallbacks(view);
   }
 
-  fetch("/api/board")
+  function boardEndpoint() {
+    var tag = document.querySelector('meta[name="board-endpoint"]');
+    var declared = tag && tag.getAttribute("content");
+    return declared && declared.length > 0 ? declared : "/api/board";
+  }
+
+  fetch(boardEndpoint())
     .then(function (res) { return res.json(); })
     .then(render)
     .catch(function (err) {

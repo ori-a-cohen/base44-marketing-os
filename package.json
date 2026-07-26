@@ -13,10 +13,13 @@
     "lint:design": "tsx src/lint/cli-design.ts",
     "measure": "tsx src/adapters/cli-measure.ts",
     "verify:page": "tsx src/verify/cli.ts",
-    "demo": "bash scripts/demo.sh"
+    "demo": "bash scripts/demo.sh",
+    "build:site": "tsx src/board/cli-build-site.ts",
+    "deploy:board": "npm run build:site && base44 site deploy --yes"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "base44": "^0.1.5",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
