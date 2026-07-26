@@ -26,7 +26,9 @@ export interface BuildOptions {
  * Amendment A (task-13/task-20): when a social card image is rendered, the
  * font actually used for the display face is written onto the card as
  * `attributes.display_font` -- taken verbatim from renderCardPng's own
- * `fontUsed.display`, never re-derived or guessed here.
+ * `fontUsed.display`, never re-derived or guessed here. It is layered last
+ * and shares no key with the persisted page copy below, so the two never
+ * contend.
  */
 export async function buildCard(opts: BuildOptions): Promise<void> {
   const cards = readCards(opts.cardsPath);
@@ -71,7 +73,30 @@ export async function buildCard(opts: BuildOptions): Promise<void> {
     ? { ...baseArtifacts, card_image: join(dir, "card.png") }
     : baseArtifacts;
 
-  const attributes = image ? { ...card.attributes, display_font: image.fontUsed.display } : card.attributes;
+  // The copy this build actually rendered into the page, persisted onto the
+  // card so the board can show what shipped without re-reading the artifact
+  // (artifacts are derived -- reading them back to recover their own source
+  // would invert that). These are exactly the six keys pageSpecFromCard
+  // reads, so `cli-build --card <id>` now round-trips on a card this
+  // function built; before, requireAttr threw on the missing slug.
+  //
+  // audienceId/campaignId are deliberately absent: the same upsertCard below
+  // already writes the top-level audience_id/campaign_id, and duplicating
+  // them here would create a second source of truth for one fact.
+  //
+  // Spread AFTER card.attributes: a stale copy attribute left by an earlier
+  // spec must never outrank the copy that is on disk right now, or the board
+  // would display text the page does not contain.
+  const specAttributes = {
+    slug: opts.spec.slug,
+    headline: opts.spec.headline,
+    subhead: opts.spec.subhead,
+    body: opts.spec.body,
+    ctaLabel: opts.spec.ctaLabel,
+    ctaHref: opts.spec.ctaHref,
+  };
+  const withSpec = { ...card.attributes, ...specAttributes };
+  const attributes = image ? { ...withSpec, display_font: image.fontUsed.display } : withSpec;
 
   upsertCard(opts.cardsPath, {
     ...card,
