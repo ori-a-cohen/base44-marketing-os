@@ -221,6 +221,30 @@ preview 404'd. Verifying the built site against live data before deploying is wh
 
 ---
 
+## Toolchain
+
+Deliberately small. Every dependency earns its place by doing something the loop would otherwise
+have to fake, and there is **no bundler and no build step** — `tsx` executes TypeScript directly, and
+the board is a single hand-written HTML file.
+
+| Tool | Used for |
+|---|---|
+| **[Base44 CLI](https://docs.base44.com/developers/references/cli/get-started/overview)** (`base44`) | Publishing the board. `npm run deploy:board` runs `base44 site deploy` after building `dist/`. Also `base44 whoami` / `workspace list` for the app id. Its `eject` and `sandbox` commands need the Builder plan; the deploy path does not. |
+| **[@base44/sdk](https://www.npmjs.com/package/@base44/sdk)** | The `Base44CardStore` driver (`ROUNDTRIP_STORE=base44`) — the hosted half of the storage contract |
+| **TypeScript** (strict) + **tsx** | The engine. `noUncheckedIndexedAccess`, no `any` without a written reason; `tsx` means no compile step to get stale |
+| **Vitest** | 449 tests, including the cold-clone acceptance test that proves a stranger can run the loop with zero keys |
+| **Playwright** (Chromium) | Two jobs: verifying every rendered page before a human sees it (`src/verify/`), and the board's own browser tests — including the one that proves a sandboxed preview records no visit |
+| **satori** + **@resvg/resvg-js** | Social cards: token-derived SVG, then PNG. Deterministic rendering, so a creative is a script's output rather than a conversation's |
+| **yaml** | Parsing `brand/DESIGN.md`'s front matter, so every colour resolves to a token instead of a remembered hex |
+| **Claude Code** — `agents/`, `skills/`, `hooks/` | The operator interface, and the enforcement under it: two `PreToolUse` hooks (`brand-lint`, `design-lint`) make off-canon content physically un-writable, and a `Stop` hook (`reconcile`) turns every guardian verdict into a card |
+| **GitHub Actions** | Typecheck + full suite on every push and PR, with no secrets — the same cold path a fresh clone gets |
+| **[DESIGN.md spec](https://github.com/google-labs-code/design.md)** | The format `brand/DESIGN.md` follows: machine-readable tokens in front matter, application rules in prose |
+
+Fonts are fetched, never vendored (`scripts/fetch-fonts.sh`): Geist is free to redistribute, Dazzed
+is not — so a clone falls back to a system face and the board **labels** it rather than pretending.
+
+---
+
 ## Command reference
 
 | Command | What it does |
@@ -252,6 +276,7 @@ hooks/      brand-lint, design-lint, reconcile (filesystem enforcement)
 src/        cards · metric · lint · render · verify · adapters · board  (the engine)
 tests/      unit, integration, and the cold-clone acceptance test
 scripts/    demo.sh, fetch-fonts.sh
+base44/     config.jsonc — how the board publishes to Base44 hosting
 ```
 
 ---
