@@ -283,5 +283,6 @@ base44/     config.jsonc — how the board publishes to Base44 hosting
 
 ## Assignment deliverables
 
-`DECISION.md`, `LAUNCH-POST.md`, and `LOOM-SCRIPT.md` at the repo root are the take-home's three
-required artifacts — each verified against the code as built, not the plan that predated it.
+`DECISION.md` and `LAUNCH-POST.md` at the repo root are the take-home's written artifacts — each
+verified against the code as built, not the plan that predated it. The third is the Loom walkthrough,
+delivered as a recording; its script is working material and stays out of the repo.
