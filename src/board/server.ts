@@ -205,7 +205,22 @@ function handleGetPage(res: ServerResponse, opts: ServerOptions, pagesDir: strin
   send(res, 200, readFileSync(filePath, "utf8"), "text/html; charset=utf-8");
 }
 
-const PAGE_ROUTE = /^\/c\/([^/]+)\/([^/]+)\/?$/;
+/**
+ * Both link forms for a card's generated page.
+ *
+ * The trailing `index.html` is what the board actually links to, because it
+ * is the only form that resolves in BOTH deployments: Base44 hosting serves
+ * the deployed file at /c/<id>/<slug>/index.html but does not resolve
+ * directory indexes, so a bare /c/<id>/<slug> there falls through to the SPA
+ * catch-all and returns the board itself -- which the sandboxed preview would
+ * render as a blank frame. Accepting it here costs one optional group and
+ * saves a second deployment seam.
+ *
+ * The bare form stays supported because it is what `artifacts.page_url`
+ * already stores on every card, and because it is the nicer URL to type.
+ * Only that exact filename is accepted -- this is not a static file server.
+ */
+const PAGE_ROUTE = /^\/c\/([^/]+)\/([^/]+)(?:\/|\/index\.html)?$/;
 
 async function dispatch(req: IncomingMessage, res: ServerResponse, opts: ServerOptions, pagesDir: string): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");

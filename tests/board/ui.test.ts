@@ -72,6 +72,18 @@ describe("board UI: the one deployment seam", () => {
     expect(ui).toMatch(/<meta name="board-endpoint" content="\/api\/board">/);
   });
 
+  /**
+   * The second declared capability, and the only other thing that differs
+   * between the two deployments. Base44 hosting sends X-Frame-Options: DENY
+   * on every response, so nothing on that origin can be framed -- not even by
+   * itself. The board cannot detect that before trying, and a refused frame
+   * renders as a broken-image box, so the deployment declares it instead.
+   * Declaring a capability is not forking the file: it is still one board.
+   */
+  it("declares whether previews can be framed, defaulting to on for the local server", () => {
+    expect(ui).toMatch(/<meta name="board-preview" content="on">/);
+  });
+
   it("reads the endpoint from that tag rather than hardcoding a path in the fetch", () => {
     expect(ui).toContain('meta[name="board-endpoint"]');
     // Exactly one fetch of board data, and it goes through the declared

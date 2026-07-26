@@ -12,6 +12,15 @@
   board and its hosted twin drifted apart before.
 -->
 <meta name="board-endpoint" content="/api/board">
+<!--
+  Whether this host lets the board frame a card's own page. Base44 hosting
+  sends X-Frame-Options: DENY on every response, so nothing on that origin
+  can be framed -- not even by itself -- and a refused frame renders as a
+  broken-image box. The board cannot discover that before trying, so the
+  deployment declares it and the board offers the page link instead. An
+  honest "not available here" beats a broken frame.
+-->
+<meta name="board-preview" content="on">
 <style>
   /*
     Direct token values from brand/DESIGN.md's front matter (not remembered,
@@ -367,7 +376,13 @@
     // Built from id + slug, never from the stored artifacts.page_url: an
     // ingested card controls that string, whereas this construction is
     // re-validated by the server's own route and store lookup.
-    return "/c/" + encodeURIComponent(card.id) + "/" + encodeURIComponent(slug);
+    //
+    // The explicit index.html is the one form that resolves in both
+    // deployments. Base44 hosting serves the deployed page file but does not
+    // resolve directory indexes, so a bare /c/<id>/<slug> there returns the
+    // SPA catch-all -- this board -- and the sandboxed preview would show a
+    // blank frame. The local server accepts both (see PAGE_ROUTE).
+    return "/c/" + encodeURIComponent(card.id) + "/" + encodeURIComponent(slug) + "/index.html";
   }
 
   function renderLinksBlock(card) {
@@ -390,15 +405,33 @@
     return '<div class="block"><span class="label">Links</span>' + rows + "</div>";
   }
 
+  function previewSupported() {
+    var tag = document.querySelector('meta[name="board-preview"]');
+    return !tag || tag.getAttribute("content") !== "off";
+  }
+
   function renderPreviewBlock(card) {
     var path = pagePath(card);
-    var inner = path
+    var inner;
+    if (!path) {
+      inner = '<p class="empty">' + DASH + " no page artifact " + DASH + " this channel ships off-platform</p>";
+    } else if (!previewSupported()) {
+      // Never render a frame this host will refuse: it would show as a
+      // broken-image box, which reads as "the page is broken" rather than
+      // "this host does not allow embedding". The link works either way.
+      inner =
+        '<p class="empty">' + DASH + " previews are not available on this host " + DASH +
+        " it sends X-Frame-Options: DENY, so the page cannot be embedded. " +
+        '<a href="' + esc(path) + '" target="_blank" rel="noopener noreferrer">Open the page</a> instead.</p>';
+    } else {
       // sandbox="" enables every restriction, so the page renders but its
       // /api/visit beacon cannot run. A preview is not a visit. Never add
       // allow-scripts here -- it would let the board manufacture the very
       // number it exists to report honestly.
-      ? '<iframe class="preview" data-src="' + esc(path) + '" sandbox="" loading="lazy" referrerpolicy="no-referrer" title="Preview of ' + esc(card.topic) + '"></iframe>'
-      : '<p class="empty">' + DASH + " no page artifact " + DASH + " this channel ships off-platform</p>";
+      inner =
+        '<iframe class="preview" data-src="' + esc(path) + '" sandbox="" loading="lazy" ' +
+        'referrerpolicy="no-referrer" title="Preview of ' + esc(card.topic) + '"></iframe>';
+    }
     return '<div class="block"><span class="label">Preview</span>' + inner + "</div>";
   }
 

@@ -18,6 +18,8 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const UI = [
   "<!doctype html>",
   '<meta name="board-endpoint" content="/api/board">',
+  '<meta name="board-preview" content="on">',
+  '<iframe class="preview" sandbox=""></iframe>',
   "<main>board</main>",
 ].join("\n");
 
@@ -72,6 +74,35 @@ describe("setBoardEndpoint", () => {
 
   it("refuses an endpoint that could break out of the attribute", () => {
     expect(() => setBoardEndpoint(UI, 'https://x/"><script>')).toThrow(/endpoint/i);
+  });
+});
+
+describe("board-preview capability", () => {
+  /**
+   * Base44 hosting sends X-Frame-Options: DENY on every response, so a
+   * preview iframe there is refused and renders as a broken-image box. The
+   * board cannot detect that before trying, so the build declares it.
+   */
+  it("defaults to off, because this only ever builds for a remote host", () => {
+    const out = build([card()]);
+    const index = readFileSync(out.indexPath, "utf8");
+    expect(index).toContain('<meta name="board-preview" content="off">');
+  });
+
+  it("can be turned on for a host that permits framing", () => {
+    const outDir = join(dir, "dist-on");
+    buildSite({ uiPath, cards: [card()], tokens, outDir, endpoint: "/functions/board", preview: "on" });
+    expect(readFileSync(join(outDir, "index.html"), "utf8")).toContain(
+      '<meta name="board-preview" content="on">',
+    );
+  });
+
+  it("throws if the board stops declaring the capability at all", () => {
+    const noTag = join(dir, "no-preview.html");
+    writeFileSync(noTag, '<!doctype html><meta name="board-endpoint" content="/api/board">', "utf8");
+    expect(() =>
+      buildSite({ uiPath: noTag, cards: [], tokens, outDir: join(dir, "d"), endpoint: "/functions/board" }),
+    ).toThrow(/board-preview/);
   });
 });
 

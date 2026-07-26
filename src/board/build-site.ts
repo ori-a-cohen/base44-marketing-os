@@ -32,18 +32,29 @@ import type { DesignTokens } from "../lint/tokens.js";
  *    the board is showing them. Artifacts are derived, never hand-carried.
  */
 
-const ENDPOINT_TAG = /<meta name="board-endpoint" content="[^"]*">/;
-
 /** Anything that cannot sit inside a double-quoted HTML attribute, or that
  *  would turn a same-origin path into an off-origin fetch we did not intend. */
 const SAFE_ENDPOINT = /^\/[A-Za-z0-9/_-]*$/;
 
 /**
- * Rewrites the board's declared data source. Throws rather than returning the
- * input unchanged when the tag is absent: a silently un-rewritten build would
- * deploy a board pointing at an endpoint that does not exist on that host,
- * which fails at runtime in front of a reader instead of here.
+ * Rewrites one declared capability on the board.
+ *
+ * Throws rather than returning the input unchanged when the tag is absent: a
+ * silently un-rewritten build would deploy a board configured for the wrong
+ * host, which then fails at runtime in front of a reader instead of here.
  */
+export function setMeta(html: string, name: string, value: string): string {
+  const tag = new RegExp(`<meta name="${name}" content="[^"]*">`);
+  if (!tag.test(html)) {
+    throw new Error(
+      `the board UI has no <meta name="${name}"> tag to rewrite -- ` +
+        "src/board/ui.html must declare it for this build to target a host",
+    );
+  }
+  return html.replace(tag, `<meta name="${name}" content="${value}">`);
+}
+
+/** Where the deployed board fetches its BoardView from. */
 export function setBoardEndpoint(html: string, endpoint: string): string {
   if (!SAFE_ENDPOINT.test(endpoint)) {
     throw new Error(
@@ -51,13 +62,22 @@ export function setBoardEndpoint(html: string, endpoint: string): string {
         "it must be a root-relative path matching /[A-Za-z0-9/_-]*",
     );
   }
-  if (!ENDPOINT_TAG.test(html)) {
-    throw new Error(
-      'the board UI has no <meta name="board-endpoint"> tag to rewrite -- ' +
-        "src/board/ui.html must declare its data source for this build to target a host",
-    );
-  }
-  return html.replace(ENDPOINT_TAG, `<meta name="board-endpoint" content="${endpoint}">`);
+  return setMeta(html, "board-endpoint", endpoint);
+}
+
+export type PreviewSupport = "on" | "off";
+
+/**
+ * Whether this host lets the board frame a card's own page.
+ *
+ * Base44 hosting sends X-Frame-Options: DENY on every response, so a preview
+ * iframe there is refused by the browser and renders as a broken-image box.
+ * The board cannot find that out before trying, so the deployment states it
+ * and the board shows the page link instead -- an honest "not available
+ * here", never a broken frame.
+ */
+export function setBoardPreview(html: string, preview: PreviewSupport): string {
+  return setMeta(html, "board-preview", preview);
 }
 
 export interface BuildSiteOptions {
@@ -69,6 +89,10 @@ export interface BuildSiteOptions {
   readonly outDir: string;
   /** Where the deployed board fetches its BoardView from. */
   readonly endpoint: string;
+  /** Whether this host permits framing a card's page. Defaults to "off":
+   *  this function only ever builds for a remote host, and assuming a host
+   *  allows framing is how you ship a board full of broken frames. */
+  readonly preview?: PreviewSupport;
 }
 
 export interface SiteReport {
@@ -87,7 +111,10 @@ function write(path: string, contents: string): void {
 }
 
 export function buildSite(opts: BuildSiteOptions): SiteReport {
-  const ui = setBoardEndpoint(readFileSync(opts.uiPath, "utf8"), opts.endpoint);
+  const ui = setBoardPreview(
+    setBoardEndpoint(readFileSync(opts.uiPath, "utf8"), opts.endpoint),
+    opts.preview ?? "off",
+  );
 
   // Cleared, not merged: a card removed from the store must not keep serving
   // its old page from a previous build. Hosting deploys whatever is here.

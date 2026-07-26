@@ -193,6 +193,32 @@ describe("board server", () => {
       expect(await res.text()).toBe(PAGE_HTML);
     });
 
+    /**
+     * The board links to the explicit /index.html form because that is the
+     * only one that works in BOTH places. Base44 hosting serves the deployed
+     * file at /c/<id>/<slug>/index.html but does not resolve directory
+     * indexes -- a bare /c/<id>/<slug> falls through to its SPA catch-all and
+     * returns the board itself, which the sandboxed preview would then render
+     * as a blank frame. Accepting the suffix here means one link form instead
+     * of a second deployment seam. The bare form stays supported: it is what
+     * artifacts.page_url already stores on every card.
+     */
+    it("serves the same page at the explicit index.html the board links to", async () => {
+      const res = await fetch(`${base}/c/cc-1/base1/index.html`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/html");
+      expect(await res.text()).toBe(PAGE_HTML);
+    });
+
+    it("still honours the slug check on the index.html form", async () => {
+      expect((await fetch(`${base}/c/cc-1/wrong-slug/index.html`)).status).toBe(404);
+    });
+
+    it("does not accept an arbitrary filename after the slug", async () => {
+      expect((await fetch(`${base}/c/cc-1/base1/card.png`)).status).toBe(404);
+      expect((await fetch(`${base}/c/cc-1/base1/index.html/extra`)).status).toBe(404);
+    });
+
     it("returns 404 for an unknown card page", async () => {
       expect((await fetch(`${base}/c/nope/slug`)).status).toBe(404);
     });

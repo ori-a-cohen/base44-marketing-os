@@ -309,19 +309,19 @@ describe("board UI: a preview is not a visit", () => {
     // document really was fetched and parsed, so the beacon had its chance
     // to fire and was stopped -- rather than never having run at all.
     const previewLoaded = page.waitForResponse(
-      (res) => res.url().endsWith("/c/cc-zero/base1"),
+      (res) => res.url().endsWith("/c/cc-zero/base1/index.html"),
       { timeout: 15_000 },
     );
     await page.locator('details[data-card-id="cc-zero"] > summary').click();
 
     const frame = page.locator('details[data-card-id="cc-zero"] iframe');
-    expect(await frame.getAttribute("src")).toBe("/c/cc-zero/base1");
+    expect(await frame.getAttribute("src")).toBe("/c/cc-zero/base1/index.html");
     expect((await previewLoaded).status()).toBe(200);
 
     // Read through Playwright's frame API, not contentDocument: sandbox=""
     // gives the frame an opaque origin, so the parent document cannot reach
     // into it at all. That inaccessibility IS the guarantee under test.
-    const previewFrame = page.frames().find((f) => f.url().endsWith("/c/cc-zero/base1"));
+    const previewFrame = page.frames().find((f) => f.url().endsWith("/c/cc-zero/base1/index.html"));
     expect(previewFrame).toBeDefined();
     expect(await previewFrame?.locator("h1").textContent()).toContain("Base1 builds your app");
 
