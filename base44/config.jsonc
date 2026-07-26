@@ -1,0 +1,34 @@
+// Base44 project configuration -- the hosted half of this repo.
+//
+// This file, plus `npm run deploy:board`, is what makes GitHub the single
+// source of truth for the published board at
+// https://roundtrip-board-ecceb49b.base44.app
+//
+// The site deployed here is src/board/ui.html itself -- the same file
+// src/board/server.ts serves locally -- with one value rewritten: where the
+// BoardView comes from (see src/board/build-site.ts). There is deliberately
+// no second client implementation. The hosted board used to be a separate
+// React app consuming the same contract, and it drifted, because two views
+// of one thing is a promise to keep them in step by hand.
+//
+// The app's backend (Card/Visit entities, and the board/cards/visit
+// functions running the vendored compute layer) already exists and is NOT
+// managed from here -- `npm run deploy:board` deploys the site only, so a
+// UI change can never disturb the data or the number.
+//
+// The app id is not stored in this file. It comes from BASE44_APP_ID (see
+// .env.example) or `base44 link`, per the CLI's own convention that the
+// link file stays out of version control.
+{
+  "name": "roundtrip-board",
+  "description": "Roundtrip - loop-closure board. Brain, Visibility, Movement, Memory: one number, honestly measured.",
+
+  "visibility": "public",
+
+  "site": {
+    // No bundler and no framework, matching the rest of this repo: the build
+    // copies one HTML file and the generated landing pages it links to.
+    "buildCommand": "npm run build:site",
+    "outputDirectory": "./dist"
+  }
+}

@@ -25,8 +25,10 @@ showing the same honest number this repo computes locally.
   Two PreToolUse hooks block the write and hand the model back the exact rule it broke.
 - **Measure what shipped** — pull outcomes through per-surface adapters and watch the loop-closure
   rate move, with seeded/immature/stale data structurally excluded from the numerator.
-- **See accountability, not vanity** — a board with per-surface scores, cohorts, and a
-  rule-accountability view that names which brand rules the outcome data does and doesn't support.
+- **See the work, not just the score** — every campaign on the board opens in place to the copy that
+  shipped, the platform it shipped on, a live preview of the rendered page, its live URL, and the raw
+  measured result with its provenance — over a rule-accountability view that names which brand rules
+  the outcome data does and doesn't support.
 - **Extend honestly** — unconfigured ad surfaces (Meta, LinkedIn) are registered as real, loudly
   labelled stubs, not silent gaps; a hosted Base44 storage driver slots in behind the same contract
   as the local one.
@@ -46,14 +48,27 @@ npm run demo                      # the 90-second, zero-key proof
 npm run board                     # browse the result at http://127.0.0.1:4174
 ```
 
-`npm run demo` (aka `bash scripts/demo.sh`) fetches the Geist font, seeds one approved card, builds
-its landing page and social card, verifies the rendered page in a real headless browser, records a
-genuine local page visit, serves the board and confirms it answers — then shuts itself down. It
-needs **no credentials**: `tests/acceptance/cold-clone.test.ts` runs the same script from a clean
-state and asserts it completes with every optional key scrubbed.
+`npm run demo` (aka `bash scripts/demo.sh`) fetches the Geist font, seeds the starter's example cards
+plus one approved card, builds its landing page and social card, verifies the rendered page in a real
+headless browser, records a genuine local page visit, serves the board and confirms it answers — then
+shuts itself down. It needs **no credentials**: `tests/acceptance/cold-clone.test.ts` runs the same
+script from a clean state and asserts it completes with every optional key scrubbed.
 
-Then `npm run board` serves the board at `http://127.0.0.1:4174` so you can browse the card, its
-generated page at `/c/<cardId>/<slug>`, the loop-closure number, and the per-surface breakdown.
+Then `npm run board` serves the board at `http://127.0.0.1:4174`. **Campaigns** is the first thing you
+see: one row per card across every status, each expanding in place to the copy that shipped
+(headline, subhead, body, CTA and its destination), its links, a live preview of the generated page,
+the raw measured value with its unit and provenance, and the full verdict and history trail. Below it
+sit the per-surface breakdown and the diagnostics.
+
+The demo's headline reads `1 of 1 measured (1 with an unreadable ship time)`. That is not a bug: one
+of the starter's example cards claims it shipped without recording *when*, so it is excluded from the
+denominator and named, rather than quietly counted as in flight. A shrinking denominator is never
+allowed to be invisible.
+
+The preview is a `sandbox=""` iframe. Every generated page reports its own page views, so an
+unsandboxed frame would let the board manufacture the number it exists to measure. A preview is not a
+visit — enforced twice (the sandbox, and the page's own top-frame check) and tested in a real browser
+against the visits log, with a control case proving the beacon does fire on a direct load.
 
 ---
 
@@ -137,7 +152,7 @@ fallback is a labelled, visible seam on the board, never a silent substitution.
 | Layer | Starter had | Roundtrip adds |
 |---|---|---|
 | **Brain** | `writer.md`, `brand-guardian.md`, a router | `designer`, `design-guardian`, `analyst` agents; `launch-campaign` / `measure` / `rule-audit` skills; numbered-per-rule verdicts |
-| **Visibility** | `activity-log.md` — one line per run | The live board (`src/board/`) — cards, states, the loop-closure number, per-surface scores, rule accountability |
+| **Visibility** | `activity-log.md` — one line per run | The live board (`src/board/`) — every campaign with its copy, platform, live URL, preview and measured result, over the loop-closure number, per-surface scores and rule accountability |
 | **Movement** | `hooks/log-run.sh` | `brand-lint` + `design-lint` (PreToolUse, block off-canon writes) and `reconcile` (Stop, every verdict gets a card) |
 | **Memory** | `memory/*.md` | Cards carry the rule ids that approved them, so `rule-audit` can name what outcome data supports |
 
@@ -170,13 +185,63 @@ The board runs on Base44 as a genuine Base44 app — the dogfooding is structura
   `Base44CardStore` over the Base44 SDK, selected by `ROUNDTRIP_STORE=base44`. Both satisfy the same
   reusable contract suite, which skips cleanly without `BASE44_APP_ID` — a cold clone never touches
   Base44.
-- **Hosted pieces** (in a separate project, so this fork stays clean): `Card` / `Visit` entities
-  mirroring the schema; a client board plus a `board` serverless function running the *byte-identical*
-  vendored compute layer; a token-gated `cards` ingest (closed by default) and a `visit` function that
-  cannot set provenance. The honesty discipline is identical whether the number is computed locally or
-  in the cloud.
+- **Hosted backend:** `Card` / `Visit` entities mirroring the schema; a `board` serverless function
+  running the *byte-identical* vendored compute layer; a token-gated `cards` ingest (closed by
+  default) and a `visit` function that cannot set provenance. The honesty discipline is identical
+  whether the number is computed locally or in the cloud.
+- **One board, not two.** The published site *is* `src/board/ui.html` — the same file
+  `src/board/server.ts` serves locally. It was a separate React client until it drifted: two views of
+  one contract is a promise to keep them in step by hand, and that promise got broken. Now
+  `npm run deploy:board` builds and ships the board file itself, so a board change moves both
+  surfaces at once.
 
-`ROUNDTRIP_STORE` defaults to `jsonl`, so the cold-run guarantee is untouched.
+```bash
+BASE44_APP_ID=<app id> npm run deploy:board    # build dist/, then base44 site deploy
+```
+
+`ROUNDTRIP_STORE` defaults to `jsonl`, so the cold-run guarantee is untouched. Only the *site* is
+deployed — entities and functions are untouched, so a UI change can never disturb the data or the
+number.
+
+### What the deployment declares
+
+The board carries two `<meta>` tags that `src/board/build-site.ts` rewrites per host. They are
+declared capabilities, not a forked file:
+
+| Tag | Local | Base44 | Why |
+|---|---|---|---|
+| `board-endpoint` | `/api/board` | `/functions/board` | Same `BoardView`, different route |
+| `board-preview` | `on` | `off` | Base44 sends `X-Frame-Options: DENY` on every response, so nothing there can be framed — not even by itself |
+
+With previews off the board says so in words and links to the page, rather than rendering a refused
+frame as a broken-image box. Pages ship alongside the board at the same `/c/<id>/<slug>/index.html`
+routes it links to, derived from the cards the *deployed* board renders — Base44 hosting does not
+resolve directory indexes, and building from the local store instead produced a site whose every
+preview 404'd. Verifying the built site against live data before deploying is what caught both.
+
+---
+
+## Toolchain
+
+Deliberately small. Every dependency earns its place by doing something the loop would otherwise
+have to fake, and there is **no bundler and no build step** — `tsx` executes TypeScript directly, and
+the board is a single hand-written HTML file.
+
+| Tool | Used for |
+|---|---|
+| **[Base44 CLI](https://docs.base44.com/developers/references/cli/get-started/overview)** (`base44`) | Publishing the board. `npm run deploy:board` runs `base44 site deploy` after building `dist/`. Also `base44 whoami` / `workspace list` for the app id. Its `eject` and `sandbox` commands need the Builder plan; the deploy path does not. |
+| **[@base44/sdk](https://www.npmjs.com/package/@base44/sdk)** | The `Base44CardStore` driver (`ROUNDTRIP_STORE=base44`) — the hosted half of the storage contract |
+| **TypeScript** (strict) + **tsx** | The engine. `noUncheckedIndexedAccess`, no `any` without a written reason; `tsx` means no compile step to get stale |
+| **Vitest** | 449 tests, including the cold-clone acceptance test that proves a stranger can run the loop with zero keys |
+| **Playwright** (Chromium) | Two jobs: verifying every rendered page before a human sees it (`src/verify/`), and the board's own browser tests — including the one that proves a sandboxed preview records no visit |
+| **satori** + **@resvg/resvg-js** | Social cards: token-derived SVG, then PNG. Deterministic rendering, so a creative is a script's output rather than a conversation's |
+| **yaml** | Parsing `brand/DESIGN.md`'s front matter, so every colour resolves to a token instead of a remembered hex |
+| **Claude Code** — `agents/`, `skills/`, `hooks/` | The operator interface, and the enforcement under it: two `PreToolUse` hooks (`brand-lint`, `design-lint`) make off-canon content physically un-writable, and a `Stop` hook (`reconcile`) turns every guardian verdict into a card |
+| **GitHub Actions** | Typecheck + full suite on every push and PR, with no secrets — the same cold path a fresh clone gets |
+| **[DESIGN.md spec](https://github.com/google-labs-code/design.md)** | The format `brand/DESIGN.md` follows: machine-readable tokens in front matter, application rules in prose |
+
+Fonts are fetched, never vendored (`scripts/fetch-fonts.sh`): Geist is free to redistribute, Dazzed
+is not — so a clone falls back to a system face and the board **labels** it rather than pretending.
 
 ---
 
@@ -186,7 +251,9 @@ The board runs on Base44 as a genuine Base44 app — the dogfooding is structura
 |---|---|
 | `npm run demo` | The full zero-key loop (fetch fonts → build → verify → measure → serve → stop) |
 | `npm run board` | Serve the board at `http://127.0.0.1:4174` |
-| `npm test` | Full suite (382 passing, 7 live-Base44 tests skipped without `BASE44_APP_ID`) |
+| `npm run build:site` | Build `dist/` — the board plus its pages — for Base44 hosting |
+| `npm run deploy:board` | Build and publish the board to Base44 (needs `BASE44_APP_ID`) |
+| `npm test` | Full suite (449 passing, 7 live-Base44 tests skipped without `BASE44_APP_ID`) |
 | `npm run typecheck` | `tsc --noEmit` (no build step) |
 | `npm run measure` | Pull outcomes through every adapter and attach them to cards |
 | `npm run measure -- --csv <path>` | Import a gated surface's results from CSV (labelled `manual`) |
@@ -209,6 +276,7 @@ hooks/      brand-lint, design-lint, reconcile (filesystem enforcement)
 src/        cards · metric · lint · render · verify · adapters · board  (the engine)
 tests/      unit, integration, and the cold-clone acceptance test
 scripts/    demo.sh, fetch-fonts.sh
+base44/     config.jsonc — how the board publishes to Base44 hosting
 ```
 
 ---

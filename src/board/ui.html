@@ -1,53 +1,162 @@
+<!doctype html>
+<html lang="en">
 <title>Roundtrip board</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  The one thing that differs between where this board runs. Locally,
+  src/board/server.ts answers /api/board; on Base44 hosting the same payload
+  comes from the app's `board` function. src/board/build-site.ts rewrites
+  this single value at deploy time, so the two deployments share one file
+  instead of one forking into a second copy -- which is exactly how the
+  board and its hosted twin drifted apart before.
+-->
+<meta name="board-endpoint" content="/api/board">
+<!--
+  Whether this host lets the board frame a card's own page. Base44 hosting
+  sends X-Frame-Options: DENY on every response, so nothing on that origin
+  can be framed -- not even by itself -- and a refused frame renders as a
+  broken-image box. The board cannot discover that before trying, so the
+  deployment declares it and the board offers the page link instead. An
+  honest "not available here" beats a broken frame.
+-->
+<meta name="board-preview" content="on">
 <style>
   /*
     Direct token values from brand/DESIGN.md's front matter (not remembered,
     not custom properties -- see src/render/page.ts's comment on why direct
     declarations are what the design-lint detector can actually see; this
     file is out of that hook's scope, per CLAUDE.md, but stays token-honest
-    anyway since it represents the brand).
+    anyway since it represents the brand, and tests/board/ui.test.ts is the
+    gate that proves it).
     background #F9F7F4, ink #1E1E24, primary #FF6A00, muted #6D6A67
     spacing sm 8px, md 16px, lg 32px
+
+    Font sizes are local to this file by choice. brand/DESIGN.md has no type
+    scale, and adding one to its front matter would be inert: parseTokens
+    reads only colors/typography/spacing and ignores unknown groups, so the
+    canon would claim a value nothing applies. Promote a scale to the canon
+    -- and teach parseTokens to read it -- the second surface that needs the
+    same one.
+
+    Orange is scarce by rule: exactly three uses on this page -- a failed
+    verdict, the approved status label, and the font-fallback rule. Links are
+    ink with an underline, and guardian bands are words, never colours.
   */
   *{box-sizing:border-box}
   body{
-    margin:0; background:#F9F7F4; color:#1E1E24;
-    font-family:system-ui,sans-serif; line-height:1.5; padding:32px 16px;
+    margin:0; background:#F9F7F4; color:#1E1E24; font-family:system-ui,sans-serif;
+    line-height:1.5; padding:32px 16px; font-size:0.9375rem;
   }
   main{max-width:64rem;margin:0 auto}
-  h1{font-size:1.75rem;margin:0 0 8px}
-  h2{font-size:1.15rem;margin:32px 0 8px;color:#1E1E24}
-  .lede{color:#6D6A67;margin:0 0 32px}
-  .metric-row{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
-  .metric-value{font-size:2rem;font-weight:700;color:#1E1E24}
-  .metric-inflight{color:#6D6A67;font-size:0.95rem}
-  table{width:100%;border-collapse:collapse;margin-top:8px}
-  th,td{text-align:left;padding:8px;border-bottom:1px solid #6D6A67}
-  th{color:#6D6A67;font-weight:600;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.03em}
-  .muted{color:#6D6A67}
-  .pill{display:inline-block;border:1px solid #6D6A67;border-radius:8px;padding:2px 8px;font-size:0.8rem;color:#6D6A67}
-  .pill.taste-only{border-color:#FF6A00;color:#FF6A00}
-  .card-row{border:1px solid #6D6A67;border-radius:8px;padding:16px;margin-bottom:16px}
-  .card-row h3{margin:0 0 8px;font-size:1rem}
-  .verdict{font-size:0.9rem;margin:4px 0}
-  .verdict.fail{color:#FF6A00}
-  .cta-link{color:#FF6A00;text-decoration:none;font-weight:600}
-  .cta-link:hover{text-decoration:underline}
-  .empty{color:#6D6A67;font-style:italic}
-  .font-note{font-size:0.85rem;color:#6D6A67;border-left:3px solid #FF6A00;padding-left:8px;margin:4px 0}
+  h1{font-size:1.5rem;margin:0 0 8px;font-weight:700;letter-spacing:-0.01em}
+  h2{font-size:1.125rem;margin:0;font-weight:600}
   section{margin-bottom:32px}
+  a{color:#1E1E24}
+  .lede{color:#6D6A67;margin:0 0 32px}
+  .muted{color:#6D6A67}
+  .num{font-variant-numeric:tabular-nums}
+  .empty{color:#6D6A67;font-style:italic}
+
+  /* Uppercase micro-label. Legibility at this size comes from the tracking
+     and the weight, not from a colour the canon does not have. */
+  .label{
+    font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.08em;
+    color:#6D6A67;font-weight:600;margin:0 0 8px;display:block;
+  }
+  .note{font-size:0.8125rem;color:#6D6A67;margin:8px 0 0}
+
+  /* 2rem, not 3: metricLabel is a sentence, not a digit -- formatLoopClosure
+     appends the malformed clause to it, and that string is served verbatim
+     and must never be split apart here to make it fit. Sizing to the longest
+     honest form of the label beats truncating the label to fit a size. */
+  .metric-value{
+    font-size:2rem;font-weight:700;letter-spacing:-0.02em;line-height:1.2;
+    margin:0;font-variant-numeric:tabular-nums;
+  }
+  .metric-meta{color:#6D6A67;margin:8px 0 0;font-size:0.8125rem}
+
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{text-align:left;padding:8px 16px;border-bottom:1px solid #6D6A67}
+  th{
+    font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.08em;
+    color:#6D6A67;font-weight:600;
+  }
+  td{font-variant-numeric:tabular-nums}
+  td:first-child,th:first-child{padding-left:0}
+
+  .pill{
+    display:inline-block;border:1px solid #6D6A67;border-radius:8px;
+    padding:2px 8px;font-size:0.6875rem;color:#6D6A67;
+    text-transform:uppercase;letter-spacing:0.08em;font-weight:600;
+  }
+  /* "taste-only" is the DEFAULT state of a rule, not an alarm -- eight
+     accented pills would make the quietest fact on the page the loudest
+     thing on it, and spend the accent the canon says to keep scarce. The
+     word carries the meaning; the colour does not need to. */
+
+  /* Campaigns. Rows are separated by a hairline, never boxed -- the canon
+     forbids boxes within boxes, so the preview iframe is the only framed
+     element on the page. */
+  .campaign{border-top:1px solid #6D6A67}
+  .campaign:last-of-type{border-bottom:1px solid #6D6A67}
+  .campaign > summary{
+    display:grid;grid-template-columns:minmax(5.5rem,auto) 1fr auto;
+    gap:8px 16px;align-items:baseline;padding:16px 0;cursor:pointer;list-style:none;
+  }
+  .campaign > summary::-webkit-details-marker{display:none}
+  .campaign > summary:focus-visible{outline:2px solid #1E1E24;outline-offset:2px}
+  .c-status{
+    font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;color:#6D6A67;
+  }
+  .c-status.is-approved{color:#FF6A00}
+  .c-topic{font-size:1.125rem;font-weight:600;display:block}
+  .c-meta{font-size:0.8125rem;color:#6D6A67;display:block;font-variant-numeric:tabular-nums}
+  .c-result{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+  .c-result .c-result-sub{display:block;font-weight:400;font-size:0.8125rem;color:#6D6A67}
+  .c-mark{color:#1E1E24;font-weight:400}
+  .campaign[open] > summary .c-mark::after{content:"\2212"}
+  .campaign:not([open]) > summary .c-mark::after{content:"+"}
+
+  .c-detail{padding:0 0 32px}
+  .block{margin-bottom:16px}
+  .field{display:grid;grid-template-columns:8rem 1fr;gap:8px 16px;padding:2px 0}
+  .field-k{font-size:0.8125rem;color:#6D6A67}
+  .field-v{overflow-wrap:anywhere}
+  .preview{
+    width:100%;height:420px;border:1px solid #6D6A67;border-radius:8px;
+    background:#F9F7F4;display:block;
+  }
+  .verdict{font-size:0.8125rem;margin:2px 0}
+  .verdict.fail{color:#FF6A00}
+  .trail{margin:0;padding-left:16px;font-size:0.8125rem;color:#6D6A67}
+  .font-note{
+    font-size:0.8125rem;color:#6D6A67;border-left:3px solid #FF6A00;
+    padding-left:8px;margin:8px 0;
+  }
+
+  @media (max-width:40rem){
+    .campaign > summary{grid-template-columns:1fr}
+    .c-result{text-align:left}
+    .field{grid-template-columns:1fr;gap:0}
+  }
 </style>
 <main>
   <h1>Roundtrip board</h1>
   <p class="lede">Brain &middot; Visibility &middot; Movement &middot; Memory -- one number, honestly measured.</p>
 
   <section id="metric-section">
-    <div class="metric-row">
-      <span data-testid="metric" class="metric-value" id="metric-value">Loading…</span>
-      <span class="metric-inflight" id="metric-inflight"></span>
-    </div>
+    <span class="label">Loop closure</span>
+    <p data-testid="metric" class="metric-value" id="metric-value">Loading&hellip;</p>
+    <p class="metric-meta" id="metric-inflight"></p>
+    <p class="metric-meta" data-testid="malformed" id="metric-malformed"></p>
+  </section>
+
+  <section>
+    <h2>Campaigns</h2>
+    <p class="note" id="campaign-summary"></p>
+    <p class="note">Raw measured values here; normalized scores in Per surface below.</p>
+    <div id="campaigns" data-testid="campaigns"></div>
   </section>
 
   <section>
@@ -59,37 +168,29 @@
   </section>
 
   <section>
-    <h2>Approval queue</h2>
-    <div id="approval-queue" data-testid="approval-queue"></div>
-  </section>
+    <h2>Diagnostics</h2>
+    <p class="note">Coverage and correlation, never the number itself.</p>
 
-  <section>
-    <h2>Rule accountability</h2>
-    <p class="muted">Correlation, not causation: a rule is "supported" only once enough measured cards actually carried a verdict for it.</p>
+    <h2 style="margin-top:32px">Rule accountability</h2>
+    <p class="note">A rule is "supported" only once enough measured cards actually carried a verdict for it.</p>
     <table data-testid="rule-accountability">
       <thead><tr><th>Rule</th><th>Status</th><th>Measured cards</th></tr></thead>
       <tbody id="rule-accountability-body"></tbody>
     </table>
-  </section>
 
-  <section>
-    <h2>Cohorts &mdash; by audience</h2>
+    <h2 style="margin-top:32px">Cohorts &mdash; by audience</h2>
     <table data-testid="cohort-audience">
       <thead><tr><th>Audience</th><th>N</th><th>Mean score</th></tr></thead>
       <tbody id="cohort-audience-body"></tbody>
     </table>
-  </section>
 
-  <section>
-    <h2>Cohorts &mdash; by campaign</h2>
+    <h2 style="margin-top:32px">Cohorts &mdash; by campaign</h2>
     <table data-testid="cohort-campaign">
       <thead><tr><th>Campaign</th><th>N</th><th>Mean score</th></tr></thead>
       <tbody id="cohort-campaign-body"></tbody>
     </table>
-  </section>
 
-  <section>
-    <h2>Stub surfaces</h2>
+    <h2 style="margin-top:32px">Stub surfaces</h2>
     <ul id="stub-surfaces" data-testid="stub-surfaces"></ul>
   </section>
 
@@ -99,31 +200,69 @@
   </section>
 </main>
 <script>
-  // Known surface labels, mirroring src/metric/surfaces.ts's SURFACES table.
-  // This is a plain HTML/JS file with no build step, so the registry itself
-  // cannot be imported -- this is display-only duplication, never consulted
-  // for anything that affects the metric.
-  var SURFACE_LABELS = {
-    landing_page: "Landing page",
-    aeo_check: "Answer engines",
-    meta_ads: "Meta ads",
-    linkedin_ads: "LinkedIn ads",
+  // Display-only mirror of src/metric/surfaces.ts's SURFACES table, plus
+  // labels for the channels the starter's example cards use (linkedin,
+  // email, x) which have no registry entry at all. This is a plain HTML/JS
+  // file with no build step, so the registry itself cannot be imported.
+  //
+  // `registry` says whether src/metric/surfaces.ts knows the id; `metric` is
+  // a metric's NAME, never a value, benchmark or anything that affects a
+  // number. Nothing here is ever consulted for the metric -- getSurface's
+  // real behaviour for an unregistered id is an "unknown" surface, and the
+  // board says exactly that rather than inventing a par to score against.
+  var SURFACE_DISPLAY = {
+    landing_page: { label: "Landing page", metric: "visits", registry: true },
+    aeo_check: { label: "Answer engines", metric: "canon match", registry: true },
+    meta_ads: { label: "Meta ads", metric: "cost per signup", registry: true },
+    linkedin_ads: { label: "LinkedIn ads", metric: "cost per signup", registry: true },
+    linkedin: { label: "LinkedIn", metric: null, registry: false },
+    email: { label: "Email", metric: null, registry: false },
+    x: { label: "X", metric: null, registry: false },
   };
 
-  function surfaceLabel(id) {
-    return SURFACE_LABELS[id] || id;
+  function surfaceInfo(id) {
+    return SURFACE_DISPLAY[id] || { label: id, metric: null, registry: false };
   }
 
+  function surfaceOf(card) {
+    return card.surface || card.channel;
+  }
+
+  /** "stub" and "unknown" are different failures and must read differently:
+   *  a stub is a surface we could measure once credentials exist; an unknown
+   *  is a channel the registry has no benchmark for at all. */
+  function surfaceStatus(view, id) {
+    if ((view.stubSurfaces || []).indexOf(id) !== -1) return "stub";
+    return surfaceInfo(id).registry ? "live" : "unknown";
+  }
+
+  // Escapes the five characters that can break out of markup or an attribute
+  // value. Matches src/render/page.ts's esc exactly, including the single
+  // quote -- card copy, evidence and history are semi-untrusted input.
   function esc(value) {
     return String(value)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
+  var DASH = "—";
+
   function scoreText(score) {
-    return score === null || score === undefined ? "—" : String(score);
+    return score === null || score === undefined ? DASH : String(score);
+  }
+
+  /** Only http(s) may become an href. An ingested card controls these
+   *  strings, so javascript:/data: URLs must never reach the DOM. */
+  function safeHref(url) {
+    return typeof url === "string" && /^https?:\/\//i.test(url) ? url : null;
+  }
+
+  function attr(card, key) {
+    var value = card.attributes && card.attributes[key];
+    return typeof value === "string" && value.length > 0 ? value : null;
   }
 
   // The current (highest-version) row per logical card id -- mirrors
@@ -138,10 +277,321 @@
     return Array.from(byId.values());
   }
 
+  /**
+   * Display formatting only. Every number here was computed by the server;
+   * this function never derives one. A value of 0 is a measurement and must
+   * render as 0 -- the em-dash belongs to a null outcome, never to a zero.
+   * Only "usd" gets a currency symbol, because it is the only currency unit
+   * this codebase mints (src/adapters/csv-import.ts); any other unit is
+   * echoed verbatim rather than given an invented symbol.
+   */
+  function formatValue(value, unit) {
+    if (typeof value !== "number" || !isFinite(value)) return { number: DASH, unit: "" };
+    if (unit === "usd") {
+      return {
+        number: "$" + value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        unit: "",
+      };
+    }
+    return { number: value.toLocaleString("en-US"), unit: unit === "count" ? "count" : String(unit || "") };
+  }
+
+  /** Locale-stable: the wire format sliced, never Date-parsed and reformatted. */
+  function formatStamp(iso) {
+    return typeof iso === "string" && iso.length >= 16 ? iso.slice(0, 16).replace("T", " ") + " UTC" : DASH;
+  }
+
+  /** The bands in brand/rules.md, as words. Never colour-coded: orange is
+   *  scarce, and a score is not an alarm. */
+  function guardianBand(score) {
+    if (score >= 9) return "release";
+    if (score >= 7) return "fixes inline, then release";
+    return "back to the writer";
+  }
+
+  function guardianText(card) {
+    if (typeof card.guardian_score !== "number") return DASH + " not scored";
+    return card.guardian_score + " " + guardianBand(card.guardian_score);
+  }
+
+  var LEGACY_STATES = ["review", "draft"];
+
+  function statusText(card) {
+    return String(card.status || "").toUpperCase();
+  }
+
+  /**
+   * The card's headline result, as shown in the collapsed row. Four distinct
+   * no-data cases, none of which may render as a zero.
+   */
+  function resultSummary(view, card) {
+    var status = surfaceStatus(view, surfaceOf(card));
+    if (status === "unknown") return { main: DASH, sub: "not a measured surface" };
+    if (card.outcome === null || card.outcome === undefined) {
+      if (status === "stub") return { main: DASH, sub: "available, not configured" };
+      var shipped = card.status === "shipped" || card.status === "measured";
+      return { main: DASH, sub: shipped ? "shipped, awaiting measurement" : "not measured yet (not shipped)" };
+    }
+    var formatted = formatValue(card.outcome.value, card.outcome.unit);
+    return {
+      main: formatted.number + (formatted.unit ? " " + formatted.unit : ""),
+      sub: card.outcome.metric,
+    };
+  }
+
+  function field(key, value) {
+    return '<div class="field"><span class="field-k">' + esc(key) + '</span><span class="field-v">' + value + "</span></div>";
+  }
+
+  function missing(what) {
+    return '<span class="empty">' + DASH + " " + esc(what) + "</span>";
+  }
+
+  function renderCopyBlock(card) {
+    var headline = attr(card, "headline");
+    var subhead = attr(card, "subhead");
+    var body = attr(card, "body");
+    var ctaLabel = attr(card, "ctaLabel");
+    var ctaHref = safeHref(attr(card, "ctaHref"));
+
+    // Never falls back to `topic`: an absent headline means this card was
+    // built before copy was persisted, and saying so is the honest answer.
+    var cta = ctaLabel
+      ? esc(ctaLabel) + (ctaHref ? ' &rarr; <a href="' + esc(ctaHref) + '" rel="noopener noreferrer">' + esc(ctaHref) + "</a>" : "")
+      : missing("not recorded on this card");
+
+    return (
+      '<div class="block"><span class="label">Copy</span>' +
+      field("Headline", headline ? esc(headline) : missing("not recorded on this card")) +
+      field("Subhead", subhead ? esc(subhead) : missing("not recorded on this card")) +
+      field("Body", body ? esc(body) : missing("not recorded on this card")) +
+      field("CTA", cta) +
+      "</div>"
+    );
+  }
+
+  function pagePath(card) {
+    var slug = card.artifacts && card.artifacts.page_slug;
+    if (typeof slug !== "string" || slug.length === 0) return null;
+    // Built from id + slug, never from the stored artifacts.page_url: an
+    // ingested card controls that string, whereas this construction is
+    // re-validated by the server's own route and store lookup.
+    //
+    // The explicit index.html is the one form that resolves in both
+    // deployments. Base44 hosting serves the deployed page file but does not
+    // resolve directory indexes, so a bare /c/<id>/<slug> there returns the
+    // SPA catch-all -- this board -- and the sandboxed preview would show a
+    // blank frame. The local server accepts both (see PAGE_ROUTE).
+    return "/c/" + encodeURIComponent(card.id) + "/" + encodeURIComponent(slug) + "/index.html";
+  }
+
+  function renderLinksBlock(card) {
+    var rows = "";
+    var path = pagePath(card);
+    if (path) rows += field("Page", '<a href="' + esc(path) + '" target="_blank" rel="noopener noreferrer">View the page</a>');
+
+    // For a channel that ships off-platform (linkedin, email, x) there is no
+    // generated artifact at all -- `evidence` is the only live URL the card
+    // has, so it is the primary link, not a footnote.
+    var evidence = safeHref(card.evidence);
+    if (evidence) {
+      var where = surfaceInfo(surfaceOf(card)).label;
+      rows += field("Evidence", '<a href="' + esc(evidence) + '" target="_blank" rel="noopener noreferrer">View on ' + esc(where) + "</a>");
+    } else if (card.evidence === null || card.evidence === undefined) {
+      rows += field("Evidence", missing("none recorded"));
+    }
+
+    if (!path && !evidence) rows += field("Page", missing("no link recorded"));
+    return '<div class="block"><span class="label">Links</span>' + rows + "</div>";
+  }
+
+  function previewSupported() {
+    var tag = document.querySelector('meta[name="board-preview"]');
+    return !tag || tag.getAttribute("content") !== "off";
+  }
+
+  function renderPreviewBlock(card) {
+    var path = pagePath(card);
+    var inner;
+    if (!path) {
+      inner = '<p class="empty">' + DASH + " no page artifact " + DASH + " this channel ships off-platform</p>";
+    } else if (!previewSupported()) {
+      // Never render a frame this host will refuse: it would show as a
+      // broken-image box, which reads as "the page is broken" rather than
+      // "this host does not allow embedding". The link works either way.
+      inner =
+        '<p class="empty">' + DASH + " previews are not available on this host " + DASH +
+        " it sends X-Frame-Options: DENY, so the page cannot be embedded. " +
+        '<a href="' + esc(path) + '" target="_blank" rel="noopener noreferrer">Open the page</a> instead.</p>';
+    } else {
+      // sandbox="" enables every restriction, so the page renders but its
+      // /api/visit beacon cannot run. A preview is not a visit. Never add
+      // allow-scripts here -- it would let the board manufacture the very
+      // number it exists to report honestly.
+      inner =
+        '<iframe class="preview" data-src="' + esc(path) + '" sandbox="" loading="lazy" ' +
+        'referrerpolicy="no-referrer" title="Preview of ' + esc(card.topic) + '"></iframe>';
+    }
+    return '<div class="block"><span class="label">Preview</span>' + inner + "</div>";
+  }
+
+  function renderResultBlock(view, card) {
+    var rows = "";
+    var status = surfaceStatus(view, surfaceOf(card));
+    var outcome = card.outcome;
+
+    if (outcome) {
+      var formatted = formatValue(outcome.value, outcome.unit);
+      rows += field("Metric", esc(outcome.metric));
+      rows += field("Value", '<span class="num">' + esc(formatted.number) + "</span>" + (formatted.unit ? " " + esc(formatted.unit) : ""));
+      rows += field("Provenance", '<span class="pill">' + esc(outcome.provenance) + "</span>" +
+        (outcome.provenance === "seeded" ? ' <span class="muted">excluded from the metric</span>' : ""));
+      rows += field("Measured", '<span title="' + esc(outcome.measured_at) + '">' + esc(formatStamp(outcome.measured_at)) + "</span>");
+      rows += field("Source", esc(outcome.source));
+    } else if (status === "stub") {
+      var metricName = surfaceInfo(surfaceOf(card)).metric || "its primary metric";
+      rows += field("Measurement", '<span class="empty">available, not configured ' + DASH + " " + esc(metricName) + " would be measured here once credentials are set</span>");
+    } else if (status === "unknown") {
+      rows += field("Measurement", missing("not a measured surface"));
+    } else {
+      var shipped = card.status === "shipped" || card.status === "measured";
+      rows += field("Measurement", missing(shipped ? "shipped, awaiting measurement" : "not measured yet (not shipped)"));
+    }
+
+    rows += field("Guardian", esc(guardianText(card)));
+    return '<div class="block"><span class="label">Result</span>' + rows + "</div>";
+  }
+
+  function renderTrailBlock(card) {
+    var verdicts = (card.verdicts || [])
+      .map(function (v) {
+        return '<div class="' + (v.pass ? "verdict" : "verdict fail") + '">Rule ' + esc(v.rule) + ": " +
+          (v.pass ? "pass" : "fail") + " -- " + esc(v.note) + "</div>";
+      })
+      .join("");
+
+    var requests = (card.revision_requests || [])
+      .map(function (r) { return "<li>" + esc(r) + "</li>"; })
+      .join("");
+
+    var history = (card.history || [])
+      .map(function (h) { return "<li>" + esc(h) + "</li>"; })
+      .join("");
+
+    // Amendment A (task-13 carryover): a card whose display font fell back to
+    // Geist because Dazzed is licensed and not redistributable must be
+    // labelled -- a required honesty seam, never left silent. Shown on the
+    // card itself as well as in the global section below.
+    var fontNote = card.attributes && card.attributes.display_font === "Geist"
+      ? '<p class="font-note">display font: Geist (Dazzed is licensed and not redistributable &mdash; see assets/fonts/README.md)</p>'
+      : "";
+
+    return (
+      '<div class="block"><span class="label">Trail</span>' +
+      (verdicts || '<p class="empty">' + DASH + " no verdicts recorded</p>") +
+      fontNote +
+      (requests ? '<p class="label" style="margin-top:8px">Revision requests</p><ul class="trail">' + requests + "</ul>" : "") +
+      (history ? '<ul class="trail" style="margin-top:8px">' + history + "</ul>" : "") +
+      "</div>"
+    );
+  }
+
+  /** Action first: what needs the operator, then what is in progress, then
+   *  what is done. Fully deterministic so the browser test can assert order. */
+  var STATUS_RANK = { approved: 0, review: 1, draft: 1, drafted: 2, shipped: 3, measured: 4 };
+
+  function rankOf(card) {
+    var rank = STATUS_RANK[card.status];
+    return rank === undefined ? 5 : rank;
+  }
+
+  function byOperatorAttention(a, b) {
+    if (rankOf(a) !== rankOf(b)) return rankOf(a) - rankOf(b);
+    var shipA = a.shipped_at || "";
+    var shipB = b.shipped_at || "";
+    if (shipA !== shipB) return shipA < shipB ? 1 : -1;
+    var madeA = a.created || "";
+    var madeB = b.created || "";
+    if (madeA !== madeB) return madeA < madeB ? 1 : -1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  }
+
+  function renderCampaign(view, card) {
+    var result = resultSummary(view, card);
+    var isLegacy = LEGACY_STATES.indexOf(card.status) !== -1;
+    // Guardian score belongs in the collapsed row: it is the gate's own
+    // verdict on the work, and an operator scanning the list should not have
+    // to open a card to see whether it cleared the bar.
+    //
+    // Every component is escaped individually before the separator is joined
+    // in: id, campaign_id and audience_id are card-controlled strings, and
+    // the separator is deliberate markup that must survive escaping.
+    var meta = [
+      card.id,
+      surfaceInfo(surfaceOf(card)).label,
+      guardianText(card),
+      card.campaign_id || DASH,
+      card.audience_id || DASH,
+    ].map(esc).join(" &middot; ");
+
+    return (
+      '<details class="campaign" data-testid="campaign-row" data-card-id="' + esc(card.id) + '">' +
+      "<summary>" +
+      '<span class="c-status' + (card.status === "approved" ? " is-approved" : "") + '">' +
+      '<span class="c-mark"></span> ' + esc(statusText(card)) + "</span>" +
+      '<span><span class="c-topic">' + esc(card.topic) + "</span>" +
+      '<span class="c-meta">' + meta + (isLegacy ? " &middot; legacy status" : "") + "</span></span>" +
+      '<span class="c-result">' + esc(result.main) +
+      '<span class="c-result-sub">' + esc(result.sub) + "</span></span>" +
+      "</summary>" +
+      '<div class="c-detail">' +
+      renderCopyBlock(card) +
+      renderLinksBlock(card) +
+      renderPreviewBlock(card) +
+      renderResultBlock(view, card) +
+      renderTrailBlock(card) +
+      "</div></details>"
+    );
+  }
+
+  function renderCampaigns(view) {
+    var container = document.getElementById("campaigns");
+    var note = document.getElementById("campaign-summary");
+    var cards = currentCards(view.cards).sort(byOperatorAttention);
+
+    if (cards.length === 0) {
+      note.textContent = "";
+      container.innerHTML =
+        '<p class="empty">No cards yet. Run npm run demo, or npx tsx src/render/cli-build.ts --card &lt;id&gt;.</p>';
+      return;
+    }
+
+    var awaiting = cards.filter(function (c) { return c.status === "approved"; }).length;
+    note.textContent = awaiting === 0
+      ? "Nothing awaiting approval."
+      : awaiting + (awaiting === 1 ? " card awaiting your approval." : " cards awaiting your approval.");
+
+    container.innerHTML = cards
+      .map(function (c) { return renderCampaign(view, c); })
+      .join("");
+  }
+
   function renderMetric(view) {
     document.getElementById("metric-value").textContent = view.metricLabel;
     document.getElementById("metric-inflight").textContent =
       view.metric.inFlight + (view.metric.inFlight === 1 ? " card in flight" : " cards in flight");
+
+    // The shrinking denominator, said out loud. formatLoopClosure already
+    // folds this into the headline string; naming it here means a reader who
+    // skims the number still learns the count was reduced and why.
+    var malformed = document.getElementById("metric-malformed");
+    if (view.metric.malformed > 0) {
+      malformed.textContent =
+        view.metric.malformed + (view.metric.malformed === 1 ? " card claims it shipped" : " cards claim they shipped") +
+        " without a readable ship time, so it is excluded from the denominator rather than counted as in flight.";
+    } else {
+      malformed.textContent = "";
+    }
   }
 
   function renderPerSurface(view) {
@@ -152,54 +602,27 @@
     }
     body.innerHTML = view.perSurface
       .map(function (row) {
-        return (
-          "<tr><td>" + esc(row.label) + "</td><td>" + row.closed + "</td><td>" + row.eligible +
-          "</td><td>" + scoreText(row.score) + "</td></tr>"
-        );
-      })
-      .join("");
-  }
-
-  function renderApprovalQueue(view) {
-    var container = document.getElementById("approval-queue");
-    var approved = currentCards(view.cards).filter(function (c) { return c.status === "approved"; });
-    if (approved.length === 0) {
-      container.innerHTML = '<p class="empty">Nothing awaiting approval.</p>';
-      return;
-    }
-    container.innerHTML = approved
-      .map(function (c) {
-        var verdicts = (c.verdicts || [])
-          .map(function (v) {
-            var cls = v.pass ? "verdict" : "verdict fail";
-            return '<div class="' + cls + '">Rule ' + v.rule + ": " + (v.pass ? "pass" : "fail") + " -- " + esc(v.note) + "</div>";
-          })
-          .join("");
-        var slug = c.artifacts && c.artifacts.page_slug;
-        var preview = slug
-          ? '<a class="cta-link" href="/c/' + encodeURIComponent(c.id) + "/" + encodeURIComponent(slug) + '">Preview</a>'
-          : '<span class="muted">no preview yet</span>';
-        var fontNote =
-          c.attributes && c.attributes.display_font === "Geist"
-            ? '<p class="font-note">display font: Geist (Dazzed is licensed and not redistributable — see assets/fonts/README.md)</p>'
-            : "";
-        return (
-          '<div class="card-row"><h3>' + esc(c.topic) + " (" + esc(c.id) + ")</h3>" +
-          verdicts + fontNote + preview + "</div>"
-        );
+        var status = surfaceStatus(view, row.surface);
+        var label = surfaceInfo(row.surface).label;
+        // An unregistered channel has no benchmark, so normalizeScore has no
+        // par to work from. Say that, rather than print a score derived from
+        // the default fallback benchmark.
+        if (status === "unknown") {
+          return "<tr><td>" + esc(label) + "</td><td>" + DASH + "</td><td>" + DASH +
+            '</td><td class="empty">not a measured surface</td></tr>';
+        }
+        return "<tr><td>" + esc(label) + "</td><td>" + row.closed + "</td><td>" + row.eligible +
+          "</td><td>" + scoreText(row.score) + "</td></tr>";
       })
       .join("");
   }
 
   function renderRuleAccountability(view) {
-    var body = document.getElementById("rule-accountability-body");
-    body.innerHTML = view.ruleAccountability
+    document.getElementById("rule-accountability-body").innerHTML = view.ruleAccountability
       .map(function (row) {
         var pillClass = row.status === "taste-only" ? "pill taste-only" : "pill";
-        return (
-          "<tr><td>Rule " + row.rule + '</td><td><span class="' + pillClass + '">' + row.status +
-          "</span></td><td>" + row.measuredCards + "</td></tr>"
-        );
+        return "<tr><td>Rule " + row.rule + '</td><td><span class="' + pillClass + '">' + row.status +
+          "</span></td><td>" + row.measuredCards + "</td></tr>";
       })
       .join("");
   }
@@ -207,13 +630,13 @@
   function renderCohortTable(bodyId, rows, keyLabel) {
     var body = document.getElementById(bodyId);
     if (!rows || rows.length === 0) {
-      body.innerHTML = '<tr><td colspan="3" class="empty">No ' + keyLabel + ' data yet.</td></tr>';
+      body.innerHTML = '<tr><td colspan="3" class="empty">No ' + keyLabel + " data yet.</td></tr>";
       return;
     }
     body.innerHTML = rows
       .map(function (row) {
         var scoreCell = row.gated
-          ? '<span class="muted">not enough data yet — ' + row.n + " of 5</span>"
+          ? '<span class="muted">not enough data yet ' + DASH + " " + row.n + " of 5</span>"
           : scoreText(row.meanScore);
         return "<tr><td>" + esc(row.key) + "</td><td>" + row.n + "</td><td>" + scoreCell + "</td></tr>";
       })
@@ -227,14 +650,10 @@
       return;
     }
     list.innerHTML = view.stubSurfaces
-      .map(function (id) { return "<li>" + esc(surfaceLabel(id)) + " — available, not configured</li>"; })
+      .map(function (id) { return "<li>" + esc(surfaceInfo(id).label) + " " + DASH + " available, not configured</li>"; })
       .join("");
   }
 
-  // Amendment A (task-13 carryover): a card whose display font fell back to
-  // Geist because Dazzed is licensed and not redistributable must be
-  // labelled on the board -- this is a required honesty seam, never left
-  // silent. Deduped to current versions so a superseded row cannot repeat.
   function renderFontFallbacks(view) {
     var section = document.getElementById("font-fallback-section");
     var body = document.getElementById("font-fallback-body");
@@ -248,18 +667,32 @@
     section.style.display = "";
     body.innerHTML = affected
       .map(function (c) {
-        return (
-          '<p class="font-note">' + esc(c.id) + ": display font: Geist (Dazzed is licensed and not " +
-          "redistributable — see assets/fonts/README.md)</p>"
-        );
+        return '<p class="font-note">' + esc(c.id) + ": display font: Geist (Dazzed is licensed and not " +
+          "redistributable &mdash; see assets/fonts/README.md)</p>";
       })
       .join("");
   }
 
+  /**
+   * Defers the preview's network fetch until its card is first opened.
+   * loading="lazy" alone is not enough: a lazy iframe inside a closed
+   * <details> is display:none, which some browsers load eagerly anyway. The
+   * sandbox already makes that load inert, so this is bandwidth, not safety.
+   */
+  document.addEventListener("toggle", function (event) {
+    var details = event.target;
+    if (!details || !details.classList || !details.classList.contains("campaign") || !details.open) return;
+    var frames = details.querySelectorAll("iframe[data-src]");
+    for (var i = 0; i < frames.length; i += 1) {
+      frames[i].src = frames[i].getAttribute("data-src");
+      frames[i].removeAttribute("data-src");
+    }
+  }, true);
+
   function render(view) {
     renderMetric(view);
+    renderCampaigns(view);
     renderPerSurface(view);
-    renderApprovalQueue(view);
     renderRuleAccountability(view);
     renderCohortTable("cohort-audience-body", view.cohorts.byAudience, "audience");
     renderCohortTable("cohort-campaign-body", view.cohorts.byCampaign, "campaign");
@@ -267,7 +700,13 @@
     renderFontFallbacks(view);
   }
 
-  fetch("/api/board")
+  function boardEndpoint() {
+    var tag = document.querySelector('meta[name="board-endpoint"]');
+    var declared = tag && tag.getAttribute("content");
+    return declared && declared.length > 0 ? declared : "/api/board";
+  }
+
+  fetch(boardEndpoint())
     .then(function (res) { return res.json(); })
     .then(render)
     .catch(function (err) {
@@ -275,3 +714,4 @@
       console.error(err);
     });
 </script>
+</html>

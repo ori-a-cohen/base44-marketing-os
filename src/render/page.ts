@@ -348,10 +348,20 @@ export function renderPage(spec: PageSpec, tokens: DesignTokens): string {
   // out-escape the HTML tokenizer.
   var cta = document.querySelector(".cta");
   var cardId = cta.dataset.cardId;
-  fetch("/api/visit", {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ card_id: cardId, kind: "view" }),
-  }).catch(function () {});
+  // A preview is not a visit. The board embeds this page in an iframe, and
+  // this beacon feeds outcome.value and therefore the headline metric, so a
+  // framed render that self-reported would let the board manufacture the
+  // number this repo exists to measure honestly. The board also sandboxes
+  // the frame; this is the independent second layer, living in the file that
+  // owns the claim so any future embedder gets honest behaviour for free.
+  // The click beacon below needs no guard: a click is a real interaction
+  // wherever it happens.
+  if (window.top === window.self) {
+    fetch("/api/visit", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ card_id: cardId, kind: "view" }),
+    }).catch(function () {});
+  }
   cta.addEventListener("click", function () {
     navigator.sendBeacon("/api/visit", JSON.stringify({
       card_id: cardId, kind: "click",

@@ -106,7 +106,17 @@ describe("buildCard", () => {
     expect(card?.attributes.display_font).toBeUndefined();
   });
 
-  it("preserves attributes already present on the card alongside display_font", async () => {
+  /**
+   * Precedence reframe. This test previously asserted the OPPOSITE -- that a
+   * pre-existing `headline` attribute survived a build whose spec carried a
+   * different headline. That was only correct while buildCard persisted no
+   * copy at all. Now that it does, the spec must win: `attributes` describe
+   * the bytes this build just wrote to disk, so a stale value left over from
+   * an earlier spec would make the board display copy the page does not
+   * contain. Attributes buildCard did NOT render are still preserved -- see
+   * the next test.
+   */
+  it("lets the just-rendered spec win over a stale copy attribute", async () => {
     const cards = join(dir, "cards.jsonl");
     writeFileSync(
       cards,
@@ -116,7 +126,7 @@ describe("buildCard", () => {
         topic: "Base1",
         status: "approved",
         created: "2026-07-23",
-        attributes: { headline: "x", slug: "base1", subhead: "y", body: "z", ctaLabel: "Go", ctaHref: "https://x" },
+        attributes: { headline: "x", slug: "stale", subhead: "y", body: "z", ctaLabel: "Go", ctaHref: "https://x" },
       }) + "\n",
     );
 
@@ -128,8 +138,110 @@ describe("buildCard", () => {
       fontsDir: join(dir, "no-fonts-here"),
     });
     const card = readCards(cards).find((c) => c.id === "cc-100");
-    expect(card?.attributes.headline).toBe("x");
+    expect(card?.attributes.headline).toBe(spec.headline);
+    expect(card?.attributes.slug).toBe(spec.slug);
     expect(card?.attributes.display_font).toMatch(/^System \(/);
+  });
+
+  it("persists the page spec's copy onto card.attributes so the board can show what shipped", async () => {
+    const cards = join(dir, "cards.jsonl");
+    writeFileSync(
+      cards,
+      JSON.stringify({
+        id: "cc-100",
+        channel: "landing_page",
+        topic: "Base1",
+        status: "approved",
+        created: "2026-07-23",
+      }) + "\n",
+    );
+
+    await buildCard({ spec, cardsPath: cards, outDir: join(dir, "pages"), withImage: false });
+
+    const card = readCards(cards).find((c) => c.id === "cc-100");
+    expect(card?.attributes.slug).toBe(spec.slug);
+    expect(card?.attributes.headline).toBe(spec.headline);
+    expect(card?.attributes.subhead).toBe(spec.subhead);
+    expect(card?.attributes.body).toBe(spec.body);
+    expect(card?.attributes.ctaLabel).toBe(spec.ctaLabel);
+    expect(card?.attributes.ctaHref).toBe(spec.ctaHref);
+  });
+
+  /**
+   * audienceId/campaignId are deliberately NOT written into attributes: the
+   * same upsert already sets the top-level audience_id/campaign_id, and
+   * pageSpecFromCard only falls back to the attribute form when those are
+   * absent. Writing both would create a second source of truth for one fact.
+   */
+  it("does not duplicate audience/campaign ids into attributes", async () => {
+    const cards = join(dir, "cards.jsonl");
+    writeFileSync(
+      cards,
+      JSON.stringify({
+        id: "cc-100",
+        channel: "landing_page",
+        topic: "Base1",
+        status: "approved",
+        created: "2026-07-23",
+      }) + "\n",
+    );
+
+    await buildCard({ spec, cardsPath: cards, outDir: join(dir, "pages"), withImage: false });
+
+    const card = readCards(cards).find((c) => c.id === "cc-100");
+    expect(card?.attributes.audienceId).toBeUndefined();
+    expect(card?.attributes.campaignId).toBeUndefined();
+    expect(card?.audience_id).toBe(spec.audienceId);
+    expect(card?.campaign_id).toBe(spec.campaignId);
+  });
+
+  it("preserves an operator attribute it did not render", async () => {
+    const cards = join(dir, "cards.jsonl");
+    writeFileSync(
+      cards,
+      JSON.stringify({
+        id: "cc-100",
+        channel: "landing_page",
+        topic: "Base1",
+        status: "approved",
+        created: "2026-07-23",
+        attributes: { operator_note: "keep me" },
+      }) + "\n",
+    );
+
+    await buildCard({ spec, cardsPath: cards, outDir: join(dir, "pages"), withImage: false });
+
+    const card = readCards(cards).find((c) => c.id === "cc-100");
+    expect(card?.attributes.operator_note).toBe("keep me");
+    expect(card?.attributes.headline).toBe(spec.headline);
+  });
+
+  /**
+   * The round trip that makes `cli-build --card <id>` work on a card this
+   * same function built: buildCard writes exactly the six keys
+   * pageSpecFromCard reads back, and audienceId/campaignId come from the
+   * top-level fields the same upsert set. Before this, a card built through
+   * scripts/demo.sh could not be rebuilt from itself -- requireAttr threw on
+   * the missing `slug`.
+   */
+  it("round-trips: pageSpecFromCard reproduces the spec that built the card", async () => {
+    const cards = join(dir, "cards.jsonl");
+    writeFileSync(
+      cards,
+      JSON.stringify({
+        id: "cc-100",
+        channel: "landing_page",
+        topic: "Base1",
+        status: "approved",
+        created: "2026-07-23",
+      }) + "\n",
+    );
+
+    await buildCard({ spec, cardsPath: cards, outDir: join(dir, "pages"), withImage: false });
+
+    const card = readCards(cards).find((c) => c.id === "cc-100");
+    expect(card).toBeDefined();
+    expect(pageSpecFromCard(card as NonNullable<typeof card>)).toEqual(spec);
   });
 });
 
