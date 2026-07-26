@@ -38,9 +38,25 @@ echo "1/7  fetching fonts"
 # demo continues rather than treating an offline font fetch as fatal.
 "$ROOT/scripts/fetch-fonts.sh" || echo "    continuing without Geist -- renderer falls back to a system face"
 
-echo "2/7  seeding one approved card"
+echo "2/7  seeding the starter's example cards and one approved card"
 mkdir -p "$(dirname "$CARDS_PATH")"
-cat > "$CARDS_PATH" <<'JSON'
+
+# The starter's own example cards, copied verbatim from the v1.0 assignment
+# data. They are the baseline card shape and exercise what cc-demo cannot:
+# three channels outside the surface registry (linkedin, email, x), real
+# guardian scores across all three rules.md bands, a legacy "review" status,
+# and an off-platform evidence URL. Never edited here -- in particular
+# cc-001 claims "shipped" with no shipped_at, which loop-closure reports as
+# malformed rather than folding into "in flight". Giving it a ship time to
+# tidy the headline would be fabricating one.
+#
+# They add nothing to the metric: none carries an outcome, so the numerator
+# is untouched; cc-002/cc-003 never shipped, so they are not eligible; and
+# none carries an audience, campaign or verdict, so cohorts and rule
+# accountability are untouched too.
+cat data/content-cards.example.jsonl > "$CARDS_PATH"
+
+cat >> "$CARDS_PATH" <<'JSON'
 {"id":"cc-demo","channel":"landing_page","topic":"Base1 launch","status":"approved","created":"2026-07-23","audience_id":"solo-builder","campaign_id":"base1-launch","verdicts":[{"rule":4,"pass":true,"note":"every claim traced to data/source-base1.md","gate":"brand"}]}
 JSON
 
