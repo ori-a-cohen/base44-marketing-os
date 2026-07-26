@@ -277,12 +277,14 @@ src/        cards · metric · lint · render · verify · adapters · board  (t
 tests/      unit, integration, and the cold-clone acceptance test
 scripts/    demo.sh, fetch-fonts.sh
 base44/     config.jsonc — how the board publishes to Base44 hosting
+
+assignment-docs/  DECISION.md, LAUNCH-POST.md — the take-home's written deliverables
 ```
 
 ---
 
 ## Assignment deliverables
 
-`DECISION.md` and `LAUNCH-POST.md` at the repo root are the take-home's written artifacts — each
-verified against the code as built, not the plan that predated it. The third is the Loom walkthrough,
-delivered as a recording; its script is working material and stays out of the repo.
+`assignment-docs/DECISION.md` and `assignment-docs/LAUNCH-POST.md` are the take-home's written
+artifacts — each verified against the code as built, not the plan that predated it. The third is the
+Loom walkthrough, delivered as a recording; its script is working material and stays out of the repo.
