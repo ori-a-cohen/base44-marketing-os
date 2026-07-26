@@ -145,6 +145,25 @@ afterAll(async () => {
 });
 
 /**
+ * Waits for a condition to become truthy, returning whatever it produced.
+ *
+ * Browser state settles asynchronously and a CI runner is slower than a
+ * laptop, so reading it once is a race -- and a racy assertion that happens
+ * to pass locally is worse than no assertion, because it looks like coverage.
+ * Returns undefined on timeout rather than throwing, so the caller's own
+ * expect() reports the real failure.
+ */
+async function until<T>(probe: () => T | Promise<T>, timeoutMs = 15_000): Promise<T | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await probe();
+    if (value) return value;
+    if (Date.now() > deadline) return undefined;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+/**
  * The collapsed summary line only. innerText (not textContent) on purpose:
  * it sees what a reader sees, so an assertion that a summary contains no
  * digit cannot be satisfied by text hidden inside the closed detail.
@@ -321,9 +340,20 @@ describe("board UI: a preview is not a visit", () => {
     // Read through Playwright's frame API, not contentDocument: sandbox=""
     // gives the frame an opaque origin, so the parent document cannot reach
     // into it at all. That inaccessibility IS the guarantee under test.
-    const previewFrame = page.frames().find((f) => f.url().endsWith("/c/cc-zero/base1/index.html"));
+    //
+    // Polled rather than read once: the HTTP response arriving does not mean
+    // the frame has attached and committed its document yet, and on a slower
+    // machine it has not (this read once, and CI caught it). Waiting for the
+    // frame to actually render its content is what makes the visits check
+    // below meaningful -- a beacon that never got the chance to fire would
+    // leave the log empty for the wrong reason.
+    const previewFrame = await until(
+      () => page.frames().find((f) => f.url().endsWith("/c/cc-zero/base1/index.html")),
+    );
     expect(previewFrame).toBeDefined();
-    expect(await previewFrame?.locator("h1").textContent()).toContain("Base1 builds your app");
+    await until(async () =>
+      ((await previewFrame?.locator("h1").textContent()) ?? "").includes("Base1 builds your app"),
+    );
 
     // The beacon is fire-and-forget, so give a real POST time to land before
     // concluding that none was sent.
@@ -332,13 +362,17 @@ describe("board UI: a preview is not a visit", () => {
     expect(existsSync(visitsPath)).toBe(false);
   }, 30_000);
 
-  it("the browser itself reports refusing to run the framed page's script", () => {
+  it("the browser itself reports refusing to run the framed page's script", async () => {
     // Positive proof rather than an absence: Chromium says it blocked the
     // script because the frame is sandboxed. If this message ever stops
     // appearing, the sandbox stopped applying and the assertion above would
     // be passing for the wrong reason.
+    //
+    // Polled for the same reason as the frame above: the console message
+    // arrives asynchronously, after the frame's document commits.
+    await until(() => consoleErrors.some((e) => /sandbox/i.test(e)));
     expect(consoleErrors.join(" | ")).toMatch(/sandbox/i);
-  });
+  }, 20_000);
 
   it("control: the same page loaded directly does record a visit", async () => {
     const direct = await browser.newPage();
