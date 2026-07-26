@@ -61,6 +61,32 @@ describe("renderPage", () => {
   });
 });
 
+describe("renderPage visit beacon", () => {
+  /**
+   * A preview is not a visit. The board embeds a card's own page in an
+   * iframe, and the beacon feeds outcome.value and therefore the headline
+   * metric -- so a framed render that self-reported would let the board
+   * manufacture the number the whole repo exists to measure honestly.
+   *
+   * The board's sandbox="" is the first layer and blocks scripts outright.
+   * This guard is the second and independent one: it lives in the file that
+   * owns the claim, so any future embedder gets honest behaviour even if
+   * someone weakens the board's sandbox. Both layers are asserted -- this at
+   * the string level, and end-to-end against the visits log itself in
+   * tests/board/ui.browser.test.ts.
+   */
+  it("only reports a view when the page is the top-level document", () => {
+    const html = renderPage(spec, tokens);
+    expect(html).toMatch(/window\.top\s*===\s*window\.self/);
+  });
+
+  it("still reports a view for an ordinary unframed load", () => {
+    const html = renderPage(spec, tokens);
+    expect(html).toContain('fetch("/api/visit"');
+    expect(html).toContain('kind: "view"');
+  });
+});
+
 describe("renderPage script-context injection", () => {
   // Demonstrated exploit: JSON.stringify() escapes JS string syntax but not
   // "</script" -- the HTML tokenizer terminates a <script> element on that
