@@ -136,6 +136,21 @@ beforeAll(async () => {
     if (msg.type() === "error" && !msg.text().includes("favicon")) consoleErrors.push(msg.text());
   });
   await page.goto(base, { waitUntil: "networkidle" });
+
+  // Every test below reads rendered state, so wait for the board to have
+  // actually rendered rather than trusting networkidle. The board fetches
+  // its BoardView and renders in a .then(), so "the network went quiet" and
+  // "the DOM is populated" are not the same instant -- and on a CI runner
+  // the gap is wide enough to matter.
+  await page.waitForFunction(
+    () => {
+      const metric = document.querySelector('[data-testid="metric"]');
+      const rows = document.querySelectorAll('[data-testid="campaign-row"]');
+      return Boolean(metric && !/Loading/.test(metric.textContent ?? "") && rows.length > 0);
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
 }, 60_000);
 
 afterAll(async () => {
@@ -333,8 +348,13 @@ describe("board UI: a preview is not a visit", () => {
     );
     await page.locator('details[data-card-id="cc-zero"] > summary').click();
 
+    // Polled: the board defers the frame's network fetch until its row is
+    // first opened, so `src` is copied from `data-src` by the toggle handler
+    // rather than being present in the markup. Reading it straight after the
+    // click races that handler -- it wins on a laptop and loses on CI.
     const frame = page.locator('details[data-card-id="cc-zero"] iframe');
-    expect(await frame.getAttribute("src")).toBe("/c/cc-zero/base1/index.html");
+    const src = await until(async () => await frame.getAttribute("src"));
+    expect(src).toBe("/c/cc-zero/base1/index.html");
     expect((await previewLoaded).status()).toBe(200);
 
     // Read through Playwright's frame API, not contentDocument: sandbox=""
