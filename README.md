@@ -185,18 +185,39 @@ The board runs on Base44 as a genuine Base44 app — the dogfooding is structura
   `Base44CardStore` over the Base44 SDK, selected by `ROUNDTRIP_STORE=base44`. Both satisfy the same
   reusable contract suite, which skips cleanly without `BASE44_APP_ID` — a cold clone never touches
   Base44.
-- **Hosted pieces** (in a separate project, so this fork stays clean): `Card` / `Visit` entities
-  mirroring the schema; a client board plus a `board` serverless function running the *byte-identical*
-  vendored compute layer; a token-gated `cards` ingest (closed by default) and a `visit` function that
-  cannot set provenance. The honesty discipline is identical whether the number is computed locally or
-  in the cloud.
+- **Hosted backend:** `Card` / `Visit` entities mirroring the schema; a `board` serverless function
+  running the *byte-identical* vendored compute layer; a token-gated `cards` ingest (closed by
+  default) and a `visit` function that cannot set provenance. The honesty discipline is identical
+  whether the number is computed locally or in the cloud.
+- **One board, not two.** The published site *is* `src/board/ui.html` — the same file
+  `src/board/server.ts` serves locally. It was a separate React client until it drifted: two views of
+  one contract is a promise to keep them in step by hand, and that promise got broken. Now
+  `npm run deploy:board` builds and ships the board file itself, so a board change moves both
+  surfaces at once.
 
-`ROUNDTRIP_STORE` defaults to `jsonl`, so the cold-run guarantee is untouched.
+```bash
+BASE44_APP_ID=<app id> npm run deploy:board    # build dist/, then base44 site deploy
+```
 
-**One honest caveat:** the hosted board still runs the older client. The campaign detail view
-described above landed locally and has not been ported yet. The compute layer is deliberately
-untouched by that change and stays byte-identical across both, so the *number* is the same in either
-place — it is the presentation that differs. Run `npm run board` for the current view.
+`ROUNDTRIP_STORE` defaults to `jsonl`, so the cold-run guarantee is untouched. Only the *site* is
+deployed — entities and functions are untouched, so a UI change can never disturb the data or the
+number.
+
+### What the deployment declares
+
+The board carries two `<meta>` tags that `src/board/build-site.ts` rewrites per host. They are
+declared capabilities, not a forked file:
+
+| Tag | Local | Base44 | Why |
+|---|---|---|---|
+| `board-endpoint` | `/api/board` | `/functions/board` | Same `BoardView`, different route |
+| `board-preview` | `on` | `off` | Base44 sends `X-Frame-Options: DENY` on every response, so nothing there can be framed — not even by itself |
+
+With previews off the board says so in words and links to the page, rather than rendering a refused
+frame as a broken-image box. Pages ship alongside the board at the same `/c/<id>/<slug>/index.html`
+routes it links to, derived from the cards the *deployed* board renders — Base44 hosting does not
+resolve directory indexes, and building from the local store instead produced a site whose every
+preview 404'd. Verifying the built site against live data before deploying is what caught both.
 
 ---
 
@@ -206,7 +227,9 @@ place — it is the presentation that differs. Run `npm run board` for the curre
 |---|---|
 | `npm run demo` | The full zero-key loop (fetch fonts → build → verify → measure → serve → stop) |
 | `npm run board` | Serve the board at `http://127.0.0.1:4174` |
-| `npm test` | Full suite (428 passing, 7 live-Base44 tests skipped without `BASE44_APP_ID`) |
+| `npm run build:site` | Build `dist/` — the board plus its pages — for Base44 hosting |
+| `npm run deploy:board` | Build and publish the board to Base44 (needs `BASE44_APP_ID`) |
+| `npm test` | Full suite (449 passing, 7 live-Base44 tests skipped without `BASE44_APP_ID`) |
 | `npm run typecheck` | `tsc --noEmit` (no build step) |
 | `npm run measure` | Pull outcomes through every adapter and attach them to cards |
 | `npm run measure -- --csv <path>` | Import a gated surface's results from CSV (labelled `manual`) |
