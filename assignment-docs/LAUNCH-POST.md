@@ -1,55 +1,36 @@
 # LinkedIn launch post (text only, not published)
 
 > Most AI marketing systems can prove they published something. Almost none can tell you what
-> happened next.
+> happened after.
 >
-> I forked Base44's marketing-engineering starter this week. It's a genuinely good four-layer
-> system: a writer that has to read the brand canon before it can write a word, an adversarial
-> guardian that gates every draft, rules that compound as you correct them.
+> I forked Base44's marketing-engineering starter this week. Good bones: the writer has to read the
+> brand canon before it writes a word, and a guardian gates every draft.
 >
-> Then I went looking for what it was missing most, and found the same hole from two directions.
+> Two holes, both ends of the same loop.
 >
-> **It stops at words.** Approved copy comes out, and a human still leaves the system to build the
-> page, make the image, and publish by hand.
+> It stops at words. Approved copy comes out and a human still goes off to build the page and
+> publish by hand.
 >
-> **And it never learns.** The card schema has a field proving a post shipped. It has no field at
-> all for how that post performed. Which means the brand rules that approved it are unfalsifiable —
-> a post can score 10/10 and flop, and nothing ever questions the rules that passed it.
+> And it never finds out. The card schema has a field proving a post shipped. Nothing for how it
+> did. Which means the brand rules that approved it can't be wrong. A post can score 10/10, flop,
+> and no one questions the rules that passed it.
 >
-> So I built Roundtrip, which closes both ends.
+> So I built Roundtrip. Approved copy now becomes a real landing page, checked in a headless browser
+> before anyone sees it, plus a social card rendered from the same design tokens. Brand rules run as
+> a hook that blocks off-brand copy on write: exit code 2, fix it or it doesn't save. And every
+> shipped piece comes back with a measured result attached to the rules that approved it. Rules with
+> nothing behind them get labelled taste-only.
 >
-> → Approved copy becomes a real landing page — token-derived, verified in a real headless browser
-> before a human sees it — plus a social card rendered from the same design tokens via Satori. Not a
-> paragraph someone still has to turn into a page.
+> The number I put on the front page is deliberately unflattering. Loop-closure rate: of everything
+> we published, how much do we actually know the result of?
 >
-> → Brand rules are enforced in code. A hook blocks off-brand copy at the filesystem: exit code 2,
-> the model has to fix it before the write succeeds. Not "please follow the guidelines."
+> It starts at zero, because the field didn't exist, and sample data doesn't count toward it.
+> Writing more content actually pushes it down, since every unmeasured piece grows the bottom of the
+> fraction. The only way up is to go find out what happened.
 >
-> → Every shipped piece comes back with a real measured result, attached to the specific rules that
-> approved it. Rules with nothing behind them get labelled taste-only instead of quietly passing as
-> wisdom.
+> The hard part was never the agents. It was getting outcome data into the same place as the rules
+> that produced it: one join key, the card id, stamped into the URL and the UTMs at generation time.
+> After that every channel plugs into the same contract.
 >
-> One number, and it's deliberately unflattering:
->
-> **Loop-closure rate — of everything we published, how much do we actually know the result of?**
->
-> It starts at zero. Not low. Zero, because the field didn't exist. Sample data never counts toward
-> it — that's arithmetic, not a promise. And producing more content pushes it *down*, not up — every
-> piece you ship without measuring grows the bottom of the fraction. The only way to raise it is to
-> go and find out what happened.
->
-> The part I'd tell any builder: the hard bit was never the agents. It was getting outcome data into
-> the same place as the rules that produced it. One adapter contract, one join key (card id) written
-> into the artifact at generation time — into the URL path, the UTM parameters, a meta tag — and every
-> channel becomes pluggable, including the two ad platforms that ship today as real registered stubs
-> rather than TODOs: Meta and LinkedIn are wired to the same contract, fail loudly naming the exact
-> credentials they're missing, and count toward neither side of the ratio until someone configures
-> them.
->
-> What I didn't build: the queue that proposes rule changes automatically. At five cards you'd be
-> reporting noise as insight. The mechanism is there — a rule-accountability view, cohorts by canon
-> version — but the findings stay gated until there's enough data to mean something. I also didn't
-> finish hosting the board on Base44 itself, which was the more ambitious version of this — the
-> storage layer is built to take that driver (one interface, a local implementation shipping today),
-> but the hosted half of that plan didn't land in this build, and I'd rather say that plainly than
-> claim a URL that doesn't exist.
+> If you're wiring agents together, put that key in before you think you need it. Retrofit it later
+> and everything you already shipped stays unattributable.
