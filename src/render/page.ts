@@ -1,4 +1,5 @@
 import type { DesignTokens } from "../lint/tokens.js";
+import type { EmbeddedFace, PageFonts } from "./web-fonts.js";
 
 /**
  * Carried verbatim, character for character (including the em dash), in
@@ -256,19 +257,80 @@ export function buildTrackedUrl(base: string, spec: PageSpec): string {
  * here uses a CSS custom property either, for the same reason as every
  * other rule in this function.
  */
-function buildStyleSheet(tokens: DesignTokens): string {
+/**
+ * `@font-face` rules for the faces the page carries inline, one per resolved
+ * face, with the bytes as a data URI so the artifact stays a single
+ * self-contained file (the same property the board's single HTML file has).
+ *
+ * Emitting nothing when no face resolved is the correct cold-clone
+ * behaviour, not a degradation to hide: a page that names a family it never
+ * loaded is exactly what DESIGN.md's "trust that a webfont loaded -- verify
+ * it" warns against, and the CSS stack still degrades through the brand body
+ * face to the token fallback.
+ *
+ * `font-display:swap` keeps the text visible while the face decodes; a
+ * blank headline would be a worse failure than a brief unstyled one.
+ */
+function buildFontFaces(fonts?: PageFonts): string {
+  const faces = [fonts?.display, fonts?.body].filter((f): f is EmbeddedFace => f !== undefined);
+  if (faces.length === 0) return "";
+
+  // The comment terminator is neutralised rather than the notice rejected:
+  // a licence notice must appear, so the failure mode for a hostile or
+  // malformed one has to be "appears, inert", never "silently omitted".
+  const notice = fonts?.notice ? `\n  /* ${fonts.notice.replace(/\*\//g, "*\\/")} */` : "";
+
+  return (
+    notice +
+    faces
+      .map(
+        (f) =>
+          `\n  @font-face{font-family:"${f.family}";font-weight:${f.weight};font-style:normal;` +
+          `font-display:swap;src:url(data:font/ttf;base64,${f.base64}) format("truetype")}`,
+      )
+      .join("")
+  );
+}
+
+function buildStyleSheet(tokens: DesignTokens, fonts?: PageFonts): string {
   const c = tokens.colors;
   const s = tokens.spacing;
   const t = tokens.typography;
 
-  return `
+  // The family actually written into the CSS stacks. A resolved face is
+  // named by what it really is, so a page whose display face fell back to
+  // Geist says "Geist" rather than claiming a Dazzed it never loaded --
+  // the same honesty seam card-image.ts records in attributes.display_font.
+  const displayFamily = fonts?.display?.family ?? t.display;
+  const bodyFamily = fonts?.body?.family ?? t.body;
+
+  // The h1 carries the body face as its second choice. Without it the stack
+  // read `"Dazzed", system-ui` while body copy read `"Geist", system-ui`,
+  // so on any machine without Dazzed installed -- which is every machine,
+  // since its licence forbids redistribution -- the brand face landed on
+  // everything EXCEPT the one element DESIGN.md reserves it for. Degrading
+  // display type to the brand body face is the one substitution DESIGN.md's
+  // known-glyph exception grants; degrading it to the visitor's OS is not.
+  // Deduped: when the display face fell back to the body face, the two
+  // entries are identical, and an identical second entry can never match
+  // where the first failed. The weights are selected by font-weight, not by
+  // stack position, so the repetition is inert -- and a reader cannot tell
+  // it apart from a renderer bug. The honest record of which face was really
+  // used lives in attributes.display_font and the board's font note.
+  const displayStack = [`"${displayFamily}"`, ...(bodyFamily === displayFamily ? [] : [`"${bodyFamily}"`])]
+    .concat(t.fallback ?? "")
+    .filter((entry) => entry.length > 0)
+    .join(",");
+  const bodyStack = `"${bodyFamily}",${t.fallback}`;
+
+  return `${buildFontFaces(fonts)}
   *{box-sizing:border-box}
   body{margin:0;background:${c.background};color:${c.ink};
-    font-family:"${t.body}",${t.fallback};line-height:1.6;padding:${s.lg} ${s.md}}
+    font-family:${bodyStack};line-height:1.6;padding:${s.lg} ${s.md}}
   main{max-width:44rem;margin:0 auto}
   .marker{font-size:.75rem;color:${c.muted};border:1px solid ${c.muted};
     border-radius:8px;padding:${s.sm} ${s.md};margin-bottom:${s.lg}}
-  h1{font-family:"${t.display}",${t.fallback};color:${c.ink};font-size:2.5rem;
+  h1{font-family:${displayStack};color:${c.ink};font-size:2.5rem;
     line-height:1.1;margin:0 0 ${s.md}}
   .sub{font-size:1.15rem;color:${c.muted};margin:0 0 ${s.lg}}
   p{margin:0 0 ${s.md};color:${c.ink}}
@@ -281,7 +343,7 @@ function buildStyleSheet(tokens: DesignTokens): string {
 }
 
 /** Turns an approved PageSpec plus design tokens into a self-contained landing page document. */
-export function renderPage(spec: PageSpec, tokens: DesignTokens): string {
+export function renderPage(spec: PageSpec, tokens: DesignTokens, fonts?: PageFonts): string {
   const trackedCta = buildTrackedUrl(spec.ctaHref, spec);
   // Defense in depth: re-validate the scheme immediately before writing it
   // into the `href` attribute, independent of buildTrackedUrl's own check.
@@ -321,7 +383,7 @@ export function renderPage(spec: PageSpec, tokens: DesignTokens): string {
 <meta name="x-card-id" content="${esc(spec.cardId)}">
 <meta name="x-audience-id" content="${esc(spec.audienceId)}">
 <meta name="x-campaign-id" content="${esc(spec.campaignId)}">
-<style>${buildStyleSheet(tokens)}
+<style>${buildStyleSheet(tokens, fonts)}
 </style>
 </head>
 <body>

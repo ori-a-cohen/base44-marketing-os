@@ -54,6 +54,13 @@ Display face for headlines, body face for everything else — no exceptions, no 
 - **Dazzed cannot ship with the repo.** It is free to use but not to redistribute, so a clone
   renders display type in Geist until an operator drops the file into `assets/fonts/`. The renderer
   reports which face it used and the board labels any fallback. Never let this one go silent.
+- **A page that embeds a face must carry that face's licence notice.** Geist is SIL OFL 1.1, which
+  permits redistribution *on the condition* that the copyright notice and licence travel with the
+  copy. `assets/fonts/OFL.txt` discharges that for the repo; a rendered page inlines the font bytes
+  and is independently distributed, so it has to carry the notice itself. `resolveWebFonts` reads it
+  from the licence file beside the fonts and the renderer emits it as a CSS comment — read, never
+  remembered, so it stays true if the family beside it ever changes. Found by the design gate on
+  cc-004, 2026-07-28.
 
 ## Layout
 

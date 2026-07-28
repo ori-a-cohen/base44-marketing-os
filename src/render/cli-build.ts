@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { parseTokens } from "../lint/tokens.js";
 import { renderPage, type PageSpec } from "./page.js";
+import { resolveWebFonts } from "./web-fonts.js";
 import { renderCardPng } from "./card-image.js";
 import { readCards, upsertCard } from "../cards/store.js";
 import type { Card } from "../cards/schema.js";
@@ -47,7 +48,13 @@ export async function buildCard(opts: BuildOptions): Promise<void> {
   mkdirSync(dir, { recursive: true });
 
   const pagePath = join(dir, "index.html");
-  writeFileSync(pagePath, renderPage(opts.spec, tokens), "utf8");
+  // Resolved from the same fontsDir the social card uses, so the page and
+  // the card cannot disagree about which face this build actually used.
+  // Passing opts.fontsDir through (rather than letting resolveWebFonts fall
+  // back to its own default) is what keeps a test pointed at a fixture
+  // directory from silently picking up the repo's real assets/fonts/.
+  const webFonts = resolveWebFonts(opts.fontsDir);
+  writeFileSync(pagePath, renderPage(opts.spec, tokens, webFonts), "utf8");
 
   const baseArtifacts: Record<string, string> = {
     ...card.artifacts,

@@ -4,6 +4,7 @@ import type { Card } from "../cards/schema.js";
 import { dedupeToLatestVersion } from "../metric/loop-closure.js";
 import { pageSpecFromCard } from "../render/cli-build.js";
 import { renderPage } from "../render/page.js";
+import { resolveWebFonts } from "../render/web-fonts.js";
 import type { DesignTokens } from "../lint/tokens.js";
 
 /**
@@ -93,6 +94,12 @@ export interface BuildSiteOptions {
    *  this function only ever builds for a remote host, and assuming a host
    *  allows framing is how you ship a board full of broken frames. */
   readonly preview?: PreviewSupport;
+  /** Where to resolve the faces each built page embeds. Defaults to the
+   *  repo's assets/fonts/. Injectable so a test can point at a fixture
+   *  directory, and so a deploy that ran without scripts/fetch-fonts.sh
+   *  produces pages that name the fallback rather than claiming a face
+   *  they never carried. */
+  readonly fontsDir?: string;
 }
 
 export interface SiteReport {
@@ -126,6 +133,11 @@ export function buildSite(opts: BuildSiteOptions): SiteReport {
   const pages: string[] = [];
   const unbuildable: { id: string; reason: string }[] = [];
 
+  // Resolved once for the whole site, not per card: every page in one build
+  // carries the same faces, and re-reading the same files per card would
+  // make a large deploy quadratic in font bytes for no benefit.
+  const webFonts = resolveWebFonts(opts.fontsDir);
+
   // Current versions only -- the same "which row is live" resolution the
   // board itself renders from, so a superseded version's slug never gets a
   // route the board does not link to.
@@ -141,7 +153,7 @@ export function buildSite(opts: BuildSiteOptions): SiteReport {
 
     let html: string;
     try {
-      html = renderPage(pageSpecFromCard(card), opts.tokens);
+      html = renderPage(pageSpecFromCard(card), opts.tokens, webFonts);
     } catch (error: unknown) {
       unbuildable.push({ id: card.id, reason: error instanceof Error ? error.message : String(error) });
       continue;
